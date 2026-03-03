@@ -1,0 +1,10 @@
+services:
+  sandbox:
+    build: ./container
+    image: devclaw-sandbox
+
+  browser:
+    build:
+      context: ./container
+      dockerfile: Dockerfile.browser
+    image: devclaw-browser

@@ -1,0 +1,8 @@
+FROM mcr.microsoft.com/playwright:v1.50.0-noble
+
+RUN npm install -g playwright@1.50.0
+RUN npx playwright install chromium
+
+WORKDIR /workspace
+
+COPY browser-script.js /opt/browser-script.js
