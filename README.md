@@ -338,6 +338,24 @@ devclaw/
 - **Scheduling**: node-cron
 - **Validation**: Zod v4
 
+## Benchmarks
+
+How DeVClaw compares to other agent frameworks, ordered by resource footprint:
+
+| | NullClaw | ZeroClaw | PicoClaw | NanoBot | **DeVClaw** | OpenClaw |
+|---|---|---|---|---|---|---|
+| **Language** | Zig | Rust | Go | Python | TypeScript | TypeScript |
+| **RAM** | ~1 MB | < 5 MB | < 10 MB | > 100 MB | ~300-400 MB | > 1 GB |
+| **Startup (0.8 GHz)** | < 8 ms | < 10 ms | < 1 s | > 30 s | ~30-60 s | > 500 s |
+| **Binary Size** | 678 KB | 3.4 MB | ~8 MB | N/A (scripts) | ~100 KB (dist) | ~28 MB (dist) |
+| **Tests** | 3,230+ | 1,017 | -- | -- | 0 | -- |
+| **Source Files** | ~110 | ~120 | -- | -- | ~30 | ~400+ |
+| **Cost** | Any $5 hardware | Any $10 hardware | Linux board $10 | Linux SBC ~$50 | Any $5 VPS / Mac Mini | Mac Mini $599 |
+
+DeVClaw uses ~1/3 the RAM of OpenClaw with ~1/13 the source files. The embedding model (~150MB resident) is the main memory cost -- without it, the core agent sits around ~150MB. Startup is dominated by ONNX model loading; on a modern Mac Mini it's closer to ~5s.
+
+The compiled-language frameworks (Zig, Rust, Go) will always win on raw efficiency. DeVClaw trades that for development speed, readability (~30 files you can audit in an afternoon), and access to the npm ecosystem -- MCP SDK, grammY, HuggingFace transformers, and hundreds of other packages that just work.
+
 ## License
 
 MIT
