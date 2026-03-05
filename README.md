@@ -104,6 +104,15 @@ npm start
 
 # Both Telegram and local REPL
 npm start -- --telegram --repl
+
+# Run tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Typecheck without emitting
+npm run typecheck
 ```
 
 ### Manual setup
@@ -126,14 +135,24 @@ All configuration lives in a single `.env` file:
 | Variable | Required | Description |
 |---|---|---|
 | `MASTER_KEY` | Yes | 64-char hex key for encrypting secrets. Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `NODE_ENV` | No | Runtime mode: `development`, `test`, `production` (default: `development`) |
 | `ANTHROPIC_API_KEY` | One of three | Anthropic API key |
 | `OPENAI_API_KEY` | One of three | OpenAI API key |
 | `GOOGLE_API_KEY` | One of three | Google AI API key |
 | `OWNER_CHAT_ID` | Yes | Your Telegram numeric user ID. Message [@userinfobot](https://t.me/userinfobot) to find it |
 | `MAIN_BOT_TOKEN` | Yes | Telegram bot token from [@BotFather](https://t.me/BotFather) |
+| `MAIN_MODEL_PROVIDER` | No | Main agent provider: `anthropic`, `openai`, `google` (default: `anthropic`) |
+| `MAIN_MODEL_NAME` | No | Main agent model name (default: `claude-sonnet-4-20250514`) |
+| `LLM_TIMEOUT_MS` | No | Per-provider request timeout in ms (default: `45000`) |
+| `LLM_MAX_RETRIES` | No | Number of retries for transient LLM call failures (default: `1`) |
 | `DASHBOARD_PASSWORD` | Yes | Password for the web dashboard |
 | `DASHBOARD_PORT` | No | Dashboard port (default: 3000) |
+| `DASHBOARD_SKIP_AUTH` | No | Set to `true` to skip login (local dev only -- never use in production) |
+| `DASHBOARD_ALLOWED_ORIGINS` | No | Comma-separated extra trusted origins for dashboard POST checks |
+| `LOG_LEVEL` | No | Log level: `debug`, `info`, `warn`, `error` (default: `info`) |
 | `MCP_SERVERS` | No | JSON array of MCP server configs (see MCP section) |
+| `MCP_TOOL_AGENTS` | No | Comma-separated agent names allowed to use MCP tools (default: `main`) |
+| `MCP_ENV_ALLOWLIST` | No | Comma-separated host env vars passed to MCP processes |
 
 ## Personality
 
@@ -157,7 +176,7 @@ The main agent will draft the personality, propose the agent, and guide you thro
 
 ## MCP Servers
 
-DeVClaw natively supports the [Model Context Protocol](https://modelcontextprotocol.io). Any MCP-compatible server can be plugged in, and its tools become available to all agents.
+DeVClaw natively supports the [Model Context Protocol](https://modelcontextprotocol.io). Any MCP-compatible server can be plugged in, and its tools can be exposed to selected agents.
 
 ### Configuration
 
@@ -180,6 +199,29 @@ MCP_SERVERS='[
 ```
 
 Each server's tools are automatically discovered on startup and prefixed with `mcp_<name>_` to avoid collisions. For example, the filesystem server's `read_file` tool becomes `mcp_filesystem_read_file`.
+
+You can scope MCP access with:
+
+```bash
+# Only these agents receive MCP tools
+MCP_TOOL_AGENTS=main,research
+
+# Limit which host env vars are exposed to MCP server processes
+MCP_ENV_ALLOWLIST=PATH,HOME,SHELL,TMPDIR,LANG,LC_ALL
+```
+
+Per-server permission profiles are also supported inside `MCP_SERVERS` entries:
+
+```json
+{
+  "name": "postgres",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-postgres"],
+  "allowAgents": ["main", "research"],
+  "allowTools": ["query", "describe_schema"],
+  "envAllowlist": ["PATH", "HOME", "DATABASE_URL"]
+}
+```
 
 ### How it works
 
@@ -223,13 +265,18 @@ Bot tokens are encrypted with AES-256-GCM before storage and the approval messag
 
 ## Security
 
-- **Container isolation** -- All tool execution (shell, browser, skills) happens inside Docker containers with limited resources and no host network access
+- **Container isolation** -- All tool execution (shell, browser, skills) happens inside Docker containers with constrained CPU/memory/PIDs and dropped capabilities
 - **Encrypted secrets** -- Bot tokens and sensitive config encrypted at rest with AES-256-GCM using a master key
 - **Owner-only access** -- Only messages from your `OWNER_CHAT_ID` are processed by any bot
 - **Skill sandboxing** -- Agent-created skills start in a sandbox tier. You can promote them to trusted after review
-- **Rate limiting** -- Built-in rate limits on LLM calls to prevent runaway costs
+- **Rate limiting** -- Built-in rate limits on LLM calls to prevent runaway costs, and brute-force protection on dashboard login
 - **Audit logging** -- Every action (LLM calls, tool executions, skill runs, agent proposals) is logged with timestamps
-- **Dashboard auth** -- Password-protected with signed session cookies
+- **Audit redaction** -- Sensitive tool input fields (tokens, passwords, API keys, auth headers) are redacted before audit persistence
+- **Structured logging** -- All runtime logs use a leveled logger (`LOG_LEVEL` env var: debug/info/warn/error) with timestamps and module tags
+- **Dashboard auth** -- Password-protected with signed session cookies (HttpOnly, SameSite=Lax, Secure over HTTPS)
+- **CSRF + origin checks** -- Dashboard state-changing POST routes validate same-origin and CSRF tokens
+- **Security headers** -- Dashboard responses set CSP, frame deny, content-type nosniff, referrer policy, and permissions policy
+- **LLM resilience controls** -- Configurable timeout/retry policy for provider calls (`LLM_TIMEOUT_MS`, `LLM_MAX_RETRIES`)
 
 ## Remote Dashboard Access
 
@@ -328,7 +375,9 @@ devclaw/
 │   ├── container/
 │   │   └── docker.ts         # Docker API client
 │   └── util/
-│       └── zod-to-json.ts    # Zod v4 JSON Schema converter
+│       ├── zod-to-json.ts    # Zod v4 JSON Schema converter
+│       ├── html.ts           # HTML escaping for XSS prevention
+│       └── logger.ts         # Structured leveled logger
 ├── container/
 │   ├── Dockerfile            # Sandbox container (Node.js + common tools)
 │   ├── Dockerfile.browser    # Browser container (Playwright + Chromium)
@@ -338,6 +387,8 @@ devclaw/
 │   ├── install-service.sh    # Autostart service installer (launchd/systemd)
 │   └── setup-tunnel.sh       # Cloudflare Tunnel helper
 ├── docker-compose.yml        # Container image builder
+├── .github/workflows/ci.yml  # CI pipeline (typecheck, test, build)
+├── vitest.config.ts
 ├── package.json
 ├── tsconfig.json
 └── .env.example
@@ -366,7 +417,7 @@ How DeVClaw compares to other agent frameworks, ordered by resource footprint:
 | **RAM** | ~1 MB | < 5 MB | < 10 MB | > 100 MB | ~300-400 MB | > 1 GB |
 | **Startup (0.8 GHz)** | < 8 ms | < 10 ms | < 1 s | > 30 s | ~30-60 s | > 500 s |
 | **Binary Size** | 678 KB | 3.4 MB | ~8 MB | N/A (scripts) | ~100 KB (dist) | ~28 MB (dist) |
-| **Tests** | 3,230+ | 1,017 | -- | -- | 0 | -- |
+| **Tests** | 3,230+ | 1,017 | -- | -- | 15+ | -- |
 | **Source Files** | ~110 | ~120 | -- | -- | ~30 | ~400+ |
 | **Cost** | Any $5 hardware | Any $10 hardware | Linux board $10 | Linux SBC ~$50 | Any $5 VPS / Mac Mini | Mac Mini $599 |
 

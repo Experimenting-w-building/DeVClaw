@@ -43,7 +43,13 @@ export async function extractAndStoreMemories(
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return 0;
 
-    const memories: ExtractedMemory[] = JSON.parse(jsonMatch[0]);
+    let memories: ExtractedMemory[];
+    try {
+      memories = JSON.parse(jsonMatch[0]);
+    } catch {
+      logAudit(db, agentName, "memory_extraction_failed", "LLM returned malformed JSON");
+      return 0;
+    }
     if (!Array.isArray(memories) || memories.length === 0) return 0;
 
     let stored = 0;

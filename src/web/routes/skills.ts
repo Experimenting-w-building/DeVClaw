@@ -3,11 +3,14 @@ import type Database from "better-sqlite3";
 import { layout } from "../views/layout.js";
 import { promoteSkill, demoteSkill, deleteSkill } from "../../skills/manager.js";
 import { loadConfig } from "../../config.js";
+import { escapeHtml } from "../../util/html.js";
 
 export function skillsRoutes(db: Database.Database) {
   const app = new Hono();
 
   app.get("/skills", (c) => {
+    const csrfToken = ((c as any).get?.("csrfToken") as string | undefined) ?? "";
+    const cspNonce = ((c as any).get?.("cspNonce") as string | undefined) ?? "";
     const skills = db
       .prepare("SELECT * FROM skills ORDER BY agent_name, created_at")
       .all() as Record<string, unknown>[];
@@ -16,24 +19,27 @@ export function skillsRoutes(db: Database.Database) {
       .map(
         (s) => `
         <tr>
-          <td><span class="badge badge-purple">${s.agent_name}</span></td>
-          <td class="mono">${s.name}</td>
-          <td>${s.description}</td>
+          <td><span class="badge badge-purple">${escapeHtml(s.agent_name as string)}</span></td>
+          <td class="mono">${escapeHtml(s.name as string)}</td>
+          <td>${escapeHtml(s.description as string)}</td>
           <td>
-            <span class="badge ${s.tier === "trusted" ? "badge-green" : "badge-yellow"}">${s.tier}</span>
+            <span class="badge ${s.tier === "trusted" ? "badge-green" : "badge-yellow"}">${escapeHtml(s.tier as string)}</span>
           </td>
-          <td class="dim">${s.last_used_at || "never"}</td>
+          <td class="dim">${escapeHtml((s.last_used_at as string) || "never")}</td>
           <td>
             ${
               s.tier === "sandbox"
-                ? `<form method="POST" action="/skills/${s.agent_name}/${s.name}/promote" style="display:inline">
+                ? `<form method="POST" action="/skills/${encodeURIComponent(s.agent_name as string)}/${encodeURIComponent(s.name as string)}/promote" class="inline-form">
+                     <input type="hidden" name="_csrf" value="${escapeHtml(csrfToken ?? "")}">
                      <button class="btn btn-primary" type="submit">Promote</button>
                    </form>`
-                : `<form method="POST" action="/skills/${s.agent_name}/${s.name}/demote" style="display:inline">
+                : `<form method="POST" action="/skills/${encodeURIComponent(s.agent_name as string)}/${encodeURIComponent(s.name as string)}/demote" class="inline-form">
+                     <input type="hidden" name="_csrf" value="${escapeHtml(csrfToken ?? "")}">
                      <button class="btn btn-outline" type="submit">Demote</button>
                    </form>`
             }
-            <form method="POST" action="/skills/${s.agent_name}/${s.name}/delete" style="display:inline;margin-left:8px">
+            <form method="POST" action="/skills/${encodeURIComponent(s.agent_name as string)}/${encodeURIComponent(s.name as string)}/delete" class="inline-form ml-8">
+              <input type="hidden" name="_csrf" value="${escapeHtml(csrfToken ?? "")}">
               <button class="btn btn-danger" type="submit">Delete</button>
             </form>
           </td>
@@ -55,7 +61,9 @@ export function skillsRoutes(db: Database.Database) {
             : '<div class="empty">No skills created yet. Agents will create skills as needed.</div>'
         }
       </div>
-    `
+    `,
+      csrfToken,
+      cspNonce
     );
 
     return c.html(html);

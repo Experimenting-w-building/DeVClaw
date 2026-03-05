@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# OpenClaw AI -- Cloudflare Tunnel Setup
+# DeVClaw AI -- Cloudflare Tunnel Setup
 #
 # This script sets up a Cloudflare Tunnel to expose your dashboard
 # to the internet so you can access it from anywhere.
@@ -15,7 +15,7 @@ set -euo pipefail
 
 DASHBOARD_PORT="${DASHBOARD_PORT:-3000}"
 
-echo "OpenClaw AI -- Cloudflare Tunnel Setup"
+echo "DeVClaw AI -- Cloudflare Tunnel Setup"
 echo "======================================="
 echo ""
 
@@ -41,7 +41,7 @@ if ! cloudflared tunnel list &> /dev/null 2>&1; then
   echo ""
 fi
 
-TUNNEL_NAME="openclaw-dashboard"
+TUNNEL_NAME="devclaw-dashboard"
 
 # Check if tunnel already exists
 if cloudflared tunnel list | grep -q "$TUNNEL_NAME"; then

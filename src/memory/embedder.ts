@@ -1,4 +1,7 @@
 import { pipeline, type FeatureExtractionPipeline } from "@huggingface/transformers";
+import { createLogger } from "../util/logger.js";
+
+const log = createLogger("memory");
 
 const MODEL_NAME = "Xenova/all-MiniLM-L6-v2";
 export const EMBEDDING_DIMS = 384;
@@ -13,8 +16,11 @@ async function getEmbedder(): Promise<FeatureExtractionPipeline> {
   initPromise = pipeline("feature-extraction", MODEL_NAME).then((p) => {
     embedder = p;
     initPromise = null;
-    console.log(`[memory] Embedding model loaded: ${MODEL_NAME}`);
+    log.info(`Embedding model loaded: ${MODEL_NAME}`);
     return p;
+  }).catch((err) => {
+    initPromise = null;
+    throw err;
   });
 
   return initPromise;

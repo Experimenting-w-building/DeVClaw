@@ -37,6 +37,10 @@ export function createBrowserTool(agentName: string) {
         image: BROWSER_IMAGE,
         command: ["node", "/opt/browser-script.js"],
         env: { BROWSER_ARGS: browserArgs },
+        allowNetwork: true,
+        readOnlyRootFs: false,
+        runAsUser: "pwuser",
+        pidsLimit: 512,
         timeoutMs: 45_000,
         memoryBytes: 1024 * 1024 * 1024, // 1GB for browser
       });

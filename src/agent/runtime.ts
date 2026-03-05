@@ -12,6 +12,10 @@ import { maybeSummarize } from "../memory/summarizer.js";
 import { pruneOldMemories } from "../memory/store.js";
 import { logAudit } from "../db/index.js";
 import { checkRateLimit } from "../security/rate-limiter.js";
+import { createLogger } from "../util/logger.js";
+import { redactForAudit, redactSensitive } from "../util/redact.js";
+
+const log = createLogger("runtime");
 
 export interface AgentRuntime {
   definition: AgentDefinition;
@@ -54,7 +58,12 @@ export async function runAgent(
   let history = loadConversationHistory(db, definition.name);
   history = await maybeSummarize(db, definition.name, definition.model, history);
 
-  logAudit(db, definition.name, "llm_call", `User: ${userMessage.slice(0, 200)}`);
+  logAudit(
+    db,
+    definition.name,
+    "llm_call",
+    `User: ${String(redactSensitive(userMessage)).slice(0, 200)}`
+  );
 
   const result = await callLLM({
     modelConfig: definition.model,
@@ -67,7 +76,7 @@ export async function runAgent(
         db,
         definition.name,
         "tool_call",
-        JSON.stringify({ tool: toolName, input }).slice(0, 500)
+        redactForAudit({ tool: toolName, input }, 500)
       );
     },
   });
@@ -83,7 +92,9 @@ export async function runAgent(
     `Tokens: ${totalTokens}, Steps: ${result.steps.length}`
   );
 
-  extractAndStoreMemories(db, definition.name, definition.model, userMessage, response).catch(() => {});
+  extractAndStoreMemories(db, definition.name, definition.model, userMessage, response).catch((err) => {
+    log.error("Memory extraction failed", { agent: definition.name, error: String(err) });
+  });
   pruneOldMemories(db, definition.name);
 
   return {

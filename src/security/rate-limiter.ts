@@ -37,3 +37,12 @@ export function checkRateLimit(
 export function resetRateLimit(agentName: string, action: string): void {
   limits.delete(`${agentName}:${action}`);
 }
+
+export function pruneExpiredEntries(): void {
+  const now = Date.now();
+  for (const [key, entry] of limits) {
+    if (now - entry.windowStart >= WINDOW_MS) limits.delete(key);
+  }
+}
+
+setInterval(pruneExpiredEntries, WINDOW_MS);

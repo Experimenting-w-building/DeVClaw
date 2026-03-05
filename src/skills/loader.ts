@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { tool, type ToolSet } from "../types.js";
 import type Database from "better-sqlite3";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { execInContainer, isDockerAvailable } from "../container/docker.js";
 import { listSkills, getSkillDir } from "./manager.js";
 import { logAudit } from "../db/index.js";
-import { resolve } from "node:path";
+import { redactForAudit } from "../util/redact.js";
 
 export function loadSkillsAsTools(
   db: Database.Database,
@@ -42,7 +42,7 @@ export function loadSkillsAsTools(
           db,
           agentName,
           `skill_exec_${skill.tier}`,
-          `Skill: ${skill.name}, Input: ${JSON.stringify(input).slice(0, 300)}`
+          `Skill: ${skill.name}, Input: ${redactForAudit(input, 300)}`
         );
 
         const agentWorkDir = resolve(agentsDir, agentName);

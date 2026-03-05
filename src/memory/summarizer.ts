@@ -3,6 +3,7 @@ import type { ModelConfig, ChatMessage } from "../types.js";
 import { callLLM } from "../agent/llm.js";
 import { addMemory } from "./store.js";
 import { logAudit } from "../db/index.js";
+import { getMessageCount, getOlderMessagesForSummary, pruneMessagesKeepRecent } from "../db/index.js";
 
 const SUMMARIZE_PROMPT = `You are a conversation summarizer. Compress the following conversation history into a concise summary that captures all key information, decisions, and context that would be needed to continue the conversation later.
 
@@ -28,12 +29,13 @@ export async function maybeSummarize(
   modelConfig: ModelConfig,
   messages: ChatMessage[]
 ): Promise<ChatMessage[]> {
-  if (messages.length <= SUMMARIZE_THRESHOLD) {
+  const totalMessages = getMessageCount(db, agentName);
+  if (totalMessages <= SUMMARIZE_THRESHOLD) {
     return messages;
   }
 
-  const olderMessages = messages.slice(0, messages.length - KEEP_RECENT);
-  const recentMessages = messages.slice(messages.length - KEEP_RECENT);
+  const olderMessages = getOlderMessagesForSummary(db, agentName, KEEP_RECENT);
+  if (olderMessages.length === 0) return messages;
 
   const conversationText = olderMessages
     .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
@@ -51,11 +53,12 @@ export async function maybeSummarize(
     if (summary) {
       await addMemory(db, agentName, summary, "summary", 0.7);
       logAudit(db, agentName, "conversation_summarized", `Compressed ${olderMessages.length} messages into summary`);
+      pruneMessagesKeepRecent(db, agentName, KEEP_RECENT);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logAudit(db, agentName, "summarization_failed", msg);
   }
 
-  return recentMessages;
+  return messages;
 }

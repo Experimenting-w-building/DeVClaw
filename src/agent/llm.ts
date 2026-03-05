@@ -4,6 +4,56 @@ import { GoogleGenAI } from "@google/genai";
 import { zodToJsonSchema } from "../util/zod-to-json.js";
 import type { ModelConfig, LLMProvider, ToolSet, ChatMessage } from "../types.js";
 import { loadConfig } from "../config.js";
+import { createLogger } from "../util/logger.js";
+
+const log = createLogger("llm");
+
+function safeJsonParse(str: string): unknown {
+  try {
+    return JSON.parse(str);
+  } catch {
+    log.warn("Failed to parse tool call arguments", { raw: str.slice(0, 200) });
+    return {};
+  }
+}
+
+async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`LLM request timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function callWithRetry<T>(
+  provider: string,
+  fn: () => Promise<T>,
+  timeoutMs: number,
+  maxRetries: number
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await withTimeout(fn, timeoutMs);
+    } catch (err) {
+      if (attempt >= maxRetries) throw err;
+      const delay = Math.min(1_000 * 2 ** attempt, 5_000);
+      log.warn(`Retrying ${provider} request after error`, {
+        attempt: attempt + 1,
+        delayMs: delay,
+        error: String(err),
+      });
+      await new Promise((r) => setTimeout(r, delay));
+      attempt++;
+    }
+  }
+}
 
 export interface LLMCallOptions {
   modelConfig: ModelConfig;
@@ -29,14 +79,17 @@ export interface LLMCallResult {
 
 export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
   const maxSteps = opts.maxSteps ?? 10;
+  const config = loadConfig();
+  const timeoutMs = config.llmTimeoutMs;
+  const retries = config.llmMaxRetries;
 
   switch (opts.modelConfig.provider) {
     case "anthropic":
-      return callAnthropic(opts, maxSteps);
+      return callAnthropic(opts, maxSteps, timeoutMs, retries);
     case "openai":
-      return callOpenAI(opts, maxSteps);
+      return callOpenAI(opts, maxSteps, timeoutMs, retries);
     case "google":
-      return callGoogle(opts, maxSteps);
+      return callGoogle(opts, maxSteps, timeoutMs, retries);
   }
 }
 
@@ -56,7 +109,12 @@ function toAnthropicTools(tools: ToolSet): Anthropic.Messages.Tool[] {
   }));
 }
 
-async function callAnthropic(opts: LLMCallOptions, maxSteps: number): Promise<LLMCallResult> {
+async function callAnthropic(
+  opts: LLMCallOptions,
+  maxSteps: number,
+  timeoutMs: number,
+  retries: number
+): Promise<LLMCallResult> {
   const client = getAnthropicClient();
   const anthropicTools = opts.tools ? toAnthropicTools(opts.tools) : undefined;
 
@@ -70,13 +128,18 @@ async function callAnthropic(opts: LLMCallOptions, maxSteps: number): Promise<LL
   let totalOutput = 0;
 
   for (let step = 0; step < maxSteps; step++) {
-    const response = await client.messages.create({
-      model: opts.modelConfig.model,
-      max_tokens: 4096,
-      system: opts.system,
-      messages,
-      tools: anthropicTools,
-    });
+    const response = await callWithRetry(
+      "anthropic",
+      () => client.messages.create({
+        model: opts.modelConfig.model,
+        max_tokens: 4096,
+        system: opts.system,
+        messages,
+        tools: anthropicTools,
+      }),
+      timeoutMs,
+      retries
+    );
 
     totalInput += response.usage.input_tokens;
     totalOutput += response.usage.output_tokens;
@@ -149,7 +212,12 @@ function toOpenAITools(tools: ToolSet): OpenAI.ChatCompletionTool[] {
   }));
 }
 
-async function callOpenAI(opts: LLMCallOptions, maxSteps: number): Promise<LLMCallResult> {
+async function callOpenAI(
+  opts: LLMCallOptions,
+  maxSteps: number,
+  timeoutMs: number,
+  retries: number
+): Promise<LLMCallResult> {
   const client = getOpenAIClient();
   const openaiTools = opts.tools ? toOpenAITools(opts.tools) : undefined;
 
@@ -166,11 +234,16 @@ async function callOpenAI(opts: LLMCallOptions, maxSteps: number): Promise<LLMCa
   let totalOutput = 0;
 
   for (let step = 0; step < maxSteps; step++) {
-    const response = await client.chat.completions.create({
-      model: opts.modelConfig.model,
-      messages,
-      tools: openaiTools,
-    });
+    const response = await callWithRetry(
+      "openai",
+      () => client.chat.completions.create({
+        model: opts.modelConfig.model,
+        messages,
+        tools: openaiTools,
+      }),
+      timeoutMs,
+      retries
+    );
 
     const choice = response.choices[0];
     totalInput += response.usage?.prompt_tokens ?? 0;
@@ -185,7 +258,7 @@ async function callOpenAI(opts: LLMCallOptions, maxSteps: number): Promise<LLMCa
 
     const stepToolCalls = fnToolCalls.map((tc) => ({
       name: tc.function.name,
-      input: JSON.parse(tc.function.arguments),
+      input: safeJsonParse(tc.function.arguments),
     }));
     const stepToolResults: Array<{ name: string; result: unknown }> = [];
 
@@ -198,7 +271,7 @@ async function callOpenAI(opts: LLMCallOptions, maxSteps: number): Promise<LLMCa
 
     for (const tc of fnToolCalls) {
       const fnName = tc.function.name;
-      const fnArgs = JSON.parse(tc.function.arguments);
+      const fnArgs = safeJsonParse(tc.function.arguments);
       opts.onToolCall?.(fnName, fnArgs);
       const toolDef = opts.tools?.[fnName];
       let result: unknown;
@@ -244,7 +317,12 @@ function toGoogleTools(tools: ToolSet) {
   return [{ functionDeclarations: declarations }];
 }
 
-async function callGoogle(opts: LLMCallOptions, maxSteps: number): Promise<LLMCallResult> {
+async function callGoogle(
+  opts: LLMCallOptions,
+  maxSteps: number,
+  timeoutMs: number,
+  retries: number
+): Promise<LLMCallResult> {
   const client = getGoogleClient();
   const googleTools = opts.tools ? toGoogleTools(opts.tools) : undefined;
 
@@ -260,14 +338,19 @@ async function callGoogle(opts: LLMCallOptions, maxSteps: number): Promise<LLMCa
   let totalOutput = 0;
 
   for (let step = 0; step < maxSteps; step++) {
-    const response = await client.models.generateContent({
-      model: opts.modelConfig.model,
-      contents,
-      config: {
-        systemInstruction: opts.system,
-        tools: googleTools,
-      },
-    });
+    const response = await callWithRetry(
+      "google",
+      () => client.models.generateContent({
+        model: opts.modelConfig.model,
+        contents,
+        config: {
+          systemInstruction: opts.system,
+          tools: googleTools,
+        },
+      }),
+      timeoutMs,
+      retries
+    );
 
     totalInput += response.usageMetadata?.promptTokenCount ?? 0;
     totalOutput += response.usageMetadata?.candidatesTokenCount ?? 0;

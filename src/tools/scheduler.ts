@@ -8,8 +8,17 @@ import { runAgent } from "../agent/runtime.js";
 import { logAudit } from "../db/index.js";
 import { sendMessage } from "../channels/telegram.js";
 import { loadConfig } from "../config.js";
+import { createLogger } from "../util/logger.js";
+
+const log = createLogger("scheduler");
 
 const activeTasks = new Map<string, cron.ScheduledTask>();
+interface ScheduledTaskRow {
+  id: string;
+  agent_name: string;
+  cron_expression: string;
+  tool_input: string;
+}
 
 export function createSchedulerTool(db: Database.Database, agentName: string) {
   return tool({
@@ -85,24 +94,76 @@ export function createCancelTaskTool(db: Database.Database, agentName: string) {
       taskId: z.string().describe("The ID of the task to cancel"),
     }),
     execute: async ({ taskId }) => {
-      const existing = activeTasks.get(taskId);
-      if (existing) {
-        existing.stop();
-        activeTasks.delete(taskId);
-      }
-
-      const result = db
-        .prepare("DELETE FROM scheduled_tasks WHERE id = ? AND agent_name = ?")
-        .run(taskId, agentName);
-
-      if (result.changes === 0) {
-        return { error: "Task not found" };
-      }
-
-      logAudit(db, agentName, "task_cancelled", `Task: ${taskId}`);
+      const result = deleteScheduledTask(db, taskId, agentName);
+      if (!result.ok) return { error: result.error };
       return { message: "Task cancelled successfully" };
     },
   });
+}
+
+export function setScheduledTaskEnabled(
+  db: Database.Database,
+  taskId: string,
+  enabled: boolean
+): { ok: boolean; enabled?: boolean; error?: string } {
+  const row = db
+    .prepare("SELECT id, agent_name, cron_expression, tool_input FROM scheduled_tasks WHERE id = ?")
+    .get(taskId) as ScheduledTaskRow | undefined;
+
+  if (!row) return { ok: false, error: "Task not found" };
+
+  db.prepare("UPDATE scheduled_tasks SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, taskId);
+
+  const existing = activeTasks.get(taskId);
+  if (existing) {
+    existing.stop();
+    activeTasks.delete(taskId);
+  }
+
+  if (enabled) {
+    try {
+      const input = JSON.parse(row.tool_input) as { instruction?: string };
+      if (typeof input.instruction !== "string" || input.instruction.length === 0) {
+        return { ok: false, error: "Task has invalid instruction payload" };
+      }
+      scheduleTask(db, row.id, row.agent_name, row.cron_expression, input.instruction);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(`Failed to re-enable task ${taskId}: ${msg}`);
+      return { ok: false, error: "Task payload is invalid" };
+    }
+  }
+
+  logAudit(db, row.agent_name, enabled ? "task_enabled" : "task_disabled", `Task: ${taskId}`);
+  return { ok: true, enabled };
+}
+
+export function deleteScheduledTask(
+  db: Database.Database,
+  taskId: string,
+  expectedAgentName?: string
+): { ok: boolean; error?: string } {
+  const row = db
+    .prepare("SELECT id, agent_name FROM scheduled_tasks WHERE id = ?")
+    .get(taskId) as { id: string; agent_name: string } | undefined;
+  if (!row) return { ok: false, error: "Task not found" };
+  if (expectedAgentName && row.agent_name !== expectedAgentName) {
+    return { ok: false, error: "Task not found" };
+  }
+
+  const existing = activeTasks.get(taskId);
+  if (existing) {
+    existing.stop();
+    activeTasks.delete(taskId);
+  }
+
+  const result = db
+    .prepare("DELETE FROM scheduled_tasks WHERE id = ?")
+    .run(taskId);
+  if (result.changes === 0) return { ok: false, error: "Task not found" };
+
+  logAudit(db, row.agent_name, "task_cancelled", `Task: ${taskId}`);
+  return { ok: true };
 }
 
 function scheduleTask(
@@ -115,7 +176,7 @@ function scheduleTask(
   const task = cron.schedule(cronExpression, async () => {
     const runtime = getRuntime(agentName);
     if (!runtime) {
-      console.error(`[scheduler] No runtime for agent ${agentName}, skipping task ${taskId}`);
+      log.error(`No runtime for agent ${agentName}, skipping task ${taskId}`);
       return;
     }
 
@@ -132,14 +193,14 @@ function scheduleTask(
       try {
         await sendMessage(agentName, config.ownerChatId, `📋 Scheduled task result:\n\n${result.response}`);
       } catch {
-        console.log(`[scheduler] Task ${taskId} completed but could not send Telegram message`);
+        log.warn(`Task ${taskId} completed but could not send Telegram message`);
       }
 
       logAudit(db, agentName, "task_completed", `Task: ${taskId}, Tokens: ${result.tokensUsed}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logAudit(db, agentName, "task_failed", `Task: ${taskId}, Error: ${msg}`);
-      console.error(`[scheduler] Task ${taskId} failed:`, msg);
+      log.error(`Task ${taskId} failed: ${msg}`);
     }
   });
 
@@ -149,21 +210,30 @@ function scheduleTask(
 export function loadAndScheduleAllTasks(db: Database.Database): void {
   const rows = db
     .prepare("SELECT * FROM scheduled_tasks WHERE enabled = 1")
-    .all() as Record<string, unknown>[];
+    .all() as ScheduledTaskRow[];
 
   for (const row of rows) {
-    const input = JSON.parse(row.tool_input as string);
-    scheduleTask(
-      db,
-      row.id as string,
-      row.agent_name as string,
-      row.cron_expression as string,
-      input.instruction
-    );
+    try {
+      const input = JSON.parse(row.tool_input) as { instruction?: string };
+      if (typeof input.instruction !== "string" || input.instruction.length === 0) {
+        log.warn(`Skipping task ${row.id}: missing instruction`);
+        continue;
+      }
+      scheduleTask(
+        db,
+        row.id,
+        row.agent_name,
+        row.cron_expression,
+        input.instruction
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`Skipping malformed scheduled task ${row.id}: ${msg}`);
+    }
   }
 
   if (rows.length > 0) {
-    console.log(`[scheduler] Loaded ${rows.length} scheduled task(s)`);
+    log.info(`Loaded ${rows.length} scheduled task(s)`);
   }
 }
 
@@ -172,4 +242,8 @@ export function stopAllTasks(): void {
     task.stop();
   }
   activeTasks.clear();
+}
+
+export function getActiveTaskCount(): number {
+  return activeTasks.size;
 }

@@ -3,7 +3,21 @@ dist/
 *.db
 *.db-journal
 .env
+.env.local
+.env.*.local
 agents/*/skills/sandbox/*
 agents/*/skills/trusted/*
 !agents/*/skills/sandbox/.gitkeep
 !agents/*/skills/trusted/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/

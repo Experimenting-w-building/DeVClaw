@@ -1,7 +1,15 @@
 import { tool } from "../types.js";
 import { z } from "zod";
-import { resolve } from "node:path";
+import { resolve, posix } from "node:path";
 import { execInContainer, isDockerAvailable } from "../container/docker.js";
+
+function safePath(userPath: string): string | null {
+  const normalized = posix.normalize(userPath);
+  if (posix.isAbsolute(normalized) || normalized.startsWith("..")) return null;
+  const resolved = posix.resolve("/workspace", normalized);
+  if (!resolved.startsWith("/workspace/")) return null;
+  return resolved;
+}
 
 export function createFilesystemReadTool(agentName: string, agentsDir: string) {
   const agentWorkDir = resolve(agentsDir, agentName);
@@ -18,13 +26,18 @@ export function createFilesystemReadTool(agentName: string, agentsDir: string) {
         return { error: "Docker is not available." };
       }
 
-      const cmd = maxLines
-        ? `head -n ${maxLines} "/workspace/${path}"`
-        : `cat "/workspace/${path}"`;
+      const resolved = safePath(path);
+      if (!resolved) {
+        return { error: "Invalid path: must be relative and within the workspace." };
+      }
+
+      const command = maxLines
+        ? ["head", "-n", String(maxLines), resolved]
+        : ["cat", resolved];
 
       const result = await execInContainer({
         agentName,
-        command: ["sh", "-c", cmd],
+        command,
         mounts: [
           { hostPath: agentWorkDir, containerPath: "/workspace", readOnly: true },
         ],
@@ -54,15 +67,20 @@ export function createFilesystemWriteTool(agentName: string, agentsDir: string) 
         return { error: "Docker is not available." };
       }
 
-      const escapedContent = content.replace(/'/g, "'\\''");
-      const cmd = `mkdir -p "$(dirname "/workspace/${path}")" && printf '%s' '${escapedContent}' > "/workspace/${path}"`;
+      const resolved = safePath(path);
+      if (!resolved) {
+        return { error: "Invalid path: must be relative and within the workspace." };
+      }
+
+      const dir = posix.dirname(resolved);
 
       const result = await execInContainer({
         agentName,
-        command: ["sh", "-c", cmd],
+        command: ["sh", "-c", `mkdir -p "$1" && printf '%s' "$FILE_CONTENT" > "$2"`, "--", dir, resolved],
         mounts: [
           { hostPath: agentWorkDir, containerPath: "/workspace", readOnly: false },
         ],
+        env: { FILE_CONTENT: content },
         timeoutMs: 10_000,
       });
 

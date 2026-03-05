@@ -9,10 +9,7 @@ async function main() {
     process.exit(1);
   }
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
+  const browser = await chromium.launch({ headless: true });
 
   try {
     const page = await browser.newPage();

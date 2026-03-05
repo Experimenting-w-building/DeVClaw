@@ -16,6 +16,9 @@ import {
   listAgents,
 } from "../db/index.js";
 import { decrypt } from "../security/crypto.js";
+import { createLogger } from "../util/logger.js";
+
+const log = createLogger("telegram");
 
 interface ManagedBot {
   bot: Bot;
@@ -218,7 +221,7 @@ async function handleMessage(ctx: Context, runtime: AgentRuntime): Promise<void>
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[${runtime.definition.name}] Error:`, message);
+    log.error("Agent error", { agent: runtime.definition.name, error: message });
     await ctx.reply(`Error: ${message.slice(0, 500)}`);
   }
 }
@@ -246,19 +249,19 @@ function splitMessage(text: string, maxLen: number): string[] {
 export function startBot(agentName: string): Bot | null {
   const runtime = getRuntime(agentName);
   if (!runtime) {
-    console.error(`[telegram] No runtime found for agent: ${agentName}`);
+    log.error(`No runtime found for agent: ${agentName}`);
     return null;
   }
 
   const existing = bots.get(agentName);
   if (existing?.running) {
-    console.log(`[telegram] Bot for ${agentName} already running`);
+    log.info(`Bot for ${agentName} already running`);
     return existing.bot;
   }
 
   const token = resolveToken(agentName, runtime.definition.telegramBotToken);
   if (!token) {
-    console.error(`[telegram] Cannot resolve bot token for ${agentName}`);
+    log.error(`Cannot resolve bot token for ${agentName}`);
     return null;
   }
 
@@ -272,12 +275,12 @@ export function startBot(agentName: string): Bot | null {
   bot.on("message:text", (ctx) => handleMessage(ctx, runtime));
 
   bot.catch((err) => {
-    console.error(`[telegram][${agentName}] Bot error:`, err.message);
+    log.error("Bot error", { agent: agentName, error: err.message });
   });
 
   bot.start({
     onStart: (botInfo) => {
-      console.log(`[telegram] ${agentName} bot started as @${botInfo.username}`);
+      log.info(`${agentName} bot started as @${botInfo.username}`);
       logAudit(runtime.db, agentName, "bot_started", `@${botInfo.username}`);
     },
   });
@@ -292,7 +295,7 @@ export function stopBot(agentName: string): void {
 
   managed.bot.stop();
   managed.running = false;
-  console.log(`[telegram] ${agentName} bot stopped`);
+  log.info(`${agentName} bot stopped`);
 }
 
 export function startAllBots(): void {

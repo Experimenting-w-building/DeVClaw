@@ -1,12 +1,25 @@
-export function layout(title: string, content: string): string {
+import { escapeHtml } from "../../util/html.js";
+
+export function layout(
+  title: string,
+  content: string,
+  csrfToken?: string,
+  cspNonce?: string
+): string {
+  const logoutControl = csrfToken
+    ? `<form method="POST" action="/logout" class="inline-form ml-auto">
+         <input type="hidden" name="_csrf" value="${escapeHtml(csrfToken)}">
+         <button type="submit" class="btn btn-outline">Logout</button>
+       </form>`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} — DeVClaw</title>
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-  <style>
+  <title>${escapeHtml(title)} — DeVClaw</title>
+  <style${cspNonce ? ` nonce="${escapeHtml(cspNonce)}"` : ""}>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
@@ -98,6 +111,50 @@ export function layout(title: string, content: string): string {
     .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
 
     .empty { text-align: center; padding: 48px; color: var(--text-dim); }
+    .inline-form { display: inline; }
+    .ml-auto { margin-left: auto; }
+    .ml-8 { margin-left: 8px; }
+    .mb-8 { margin-bottom: 8px; }
+    .mb-12 { margin-bottom: 12px; }
+    .mb-16 { margin-bottom: 16px; }
+    .mb-32 { margin-bottom: 32px; }
+    .text-center { text-align: center; }
+    .small-12 { font-size: 12px; }
+    .small-13 { font-size: 13px; }
+    .error-text { color: var(--red); margin-bottom: 16px; font-size: 14px; }
+    .card-login-wrap { max-width: 360px; margin: 80px auto; }
+    .row-between { display: flex; justify-content: space-between; align-items: center; }
+    .row-gap-16 { display: flex; gap: 16px; }
+    .row-gap-12 { display: flex; gap: 12px; align-items: center; }
+    .row-gap-8 { display: flex; gap: 8px; }
+    .select-input {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 12px;
+    }
+    .text-input {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 12px;
+    }
+    .text-input-flex { flex: 1; }
+    .login-input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      font-size: 15px;
+    }
+    .btn-full { width: 100%; padding: 10px; }
+    .log-time-cell { white-space: nowrap; }
+    .log-detail-cell { max-width: 500px; overflow: hidden; text-overflow: ellipsis; }
   </style>
 </head>
 <body>
@@ -108,7 +165,7 @@ export function layout(title: string, content: string): string {
       <a href="/skills">Skills</a>
       <a href="/tasks">Tasks</a>
       <a href="/logs">Logs</a>
-      <a href="/logout" style="margin-left:auto">Logout</a>
+      ${logoutControl}
     </div>
   </nav>
   <main>

@@ -31,6 +31,8 @@ export function createShellTool(agentName: string, agentsDir: string) {
         mounts: [
           { hostPath: agentWorkDir, containerPath: "/workspace", readOnly: false },
         ],
+        allowNetwork: true,
+        readOnlyRootFs: false,
         timeoutMs,
       });
 

@@ -208,6 +208,60 @@ export function getRecentMessages(
   }));
 }
 
+export function getMessageCount(db: Database.Database, agentName: string): number {
+  const row = db
+    .prepare("SELECT COUNT(*) as c FROM messages WHERE agent_name = ?")
+    .get(agentName) as { c: number };
+  return row.c;
+}
+
+export function getOlderMessagesForSummary(
+  db: Database.Database,
+  agentName: string,
+  keepRecent: number,
+  olderLimit = 200
+): AgentMessage[] {
+  const rows = db
+    .prepare(`
+      SELECT * FROM messages
+      WHERE agent_name = ?
+        AND id NOT IN (
+          SELECT id FROM messages
+          WHERE agent_name = ?
+          ORDER BY timestamp DESC
+          LIMIT ?
+        )
+      ORDER BY timestamp ASC
+      LIMIT ?
+    `)
+    .all(agentName, agentName, keepRecent, olderLimit) as Record<string, unknown>[];
+
+  return rows.map((row) => ({
+    id: row.id as string,
+    agentName: row.agent_name as string,
+    role: row.role as AgentMessage["role"],
+    content: row.content as string,
+    timestamp: row.timestamp as string,
+  }));
+}
+
+export function pruneMessagesKeepRecent(
+  db: Database.Database,
+  agentName: string,
+  keepRecent: number
+): void {
+  db.prepare(`
+    DELETE FROM messages
+    WHERE agent_name = ?
+      AND id NOT IN (
+        SELECT id FROM messages
+        WHERE agent_name = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+      )
+  `).run(agentName, agentName, keepRecent);
+}
+
 // --- Audit Log ---
 
 export function logAudit(

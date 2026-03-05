@@ -1,11 +1,14 @@
 import { Hono } from "hono";
 import type Database from "better-sqlite3";
 import { layout } from "../views/layout.js";
+import { escapeHtml } from "../../util/html.js";
 
 export function logsRoutes(db: Database.Database) {
   const app = new Hono();
 
   app.get("/logs", (c) => {
+    const csrfToken = ((c as any).get?.("csrfToken") as string | undefined) ?? "";
+    const cspNonce = ((c as any).get?.("cspNonce") as string | undefined) ?? "";
     const agentFilter = c.req.query("agent") || "";
     const actionFilter = c.req.query("action") || "";
     const limit = Math.min(Number(c.req.query("limit") || 100), 500);
@@ -32,17 +35,17 @@ export function logsRoutes(db: Database.Database) {
     ).map((r) => r.agent_name);
 
     const agentOptions = agents
-      .map((a) => `<option value="${a}" ${a === agentFilter ? "selected" : ""}>${a}</option>`)
+      .map((a) => `<option value="${escapeHtml(a)}" ${a === agentFilter ? "selected" : ""}>${escapeHtml(a)}</option>`)
       .join("");
 
     const rows = logs
       .map(
         (log) => `
         <tr>
-          <td class="mono dim" style="white-space:nowrap">${log.timestamp}</td>
-          <td><span class="badge badge-purple">${log.agent_name}</span></td>
-          <td class="mono">${log.action}</td>
-          <td class="dim" style="max-width:500px;overflow:hidden;text-overflow:ellipsis">${(log.detail as string).slice(0, 200)}</td>
+          <td class="mono dim log-time-cell">${escapeHtml(log.timestamp as string)}</td>
+          <td><span class="badge badge-purple">${escapeHtml(log.agent_name as string)}</span></td>
+          <td class="mono">${escapeHtml(log.action as string)}</td>
+          <td class="dim log-detail-cell">${escapeHtml((log.detail as string).slice(0, 200))}</td>
         </tr>`
       )
       .join("");
@@ -52,14 +55,13 @@ export function logsRoutes(db: Database.Database) {
       `
       <h1>Audit Logs</h1>
 
-      <div class="card" style="margin-bottom:16px">
-        <form method="GET" action="/logs" style="display:flex;gap:12px;align-items:center">
-          <select name="agent" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px">
+      <div class="card mb-16">
+        <form method="GET" action="/logs" class="row-gap-12">
+          <select name="agent" class="select-input">
             <option value="">All agents</option>
             ${agentOptions}
           </select>
-          <input name="action" value="${actionFilter}" placeholder="Filter by action..."
-                 style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;flex:1">
+          <input name="action" value="${escapeHtml(actionFilter)}" placeholder="Filter by action..." class="text-input text-input-flex">
           <button type="submit" class="btn btn-primary">Filter</button>
         </form>
       </div>
@@ -74,7 +76,9 @@ export function logsRoutes(db: Database.Database) {
             : '<div class="empty">No logs yet</div>'
         }
       </div>
-    `
+    `,
+      csrfToken,
+      cspNonce
     );
 
     return c.html(html);

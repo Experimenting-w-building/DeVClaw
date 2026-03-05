@@ -2,10 +2,10 @@ import { z } from "zod";
 
 // --- Tool system (replaces Vercel AI SDK tool types) ---
 
-export interface ToolDefinition {
+export interface ToolDefinition<T = any> {
   description: string;
-  inputSchema: z.ZodType<any>;
-  execute: (input: any) => Promise<unknown>;
+  inputSchema: z.ZodType<T>;
+  execute: (input: T) => Promise<unknown>;
 }
 
 export type ToolSet = Record<string, ToolDefinition>;

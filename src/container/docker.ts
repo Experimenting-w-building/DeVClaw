@@ -1,5 +1,8 @@
 import Docker from "dockerode";
 import { PassThrough } from "node:stream";
+import { createLogger } from "../util/logger.js";
+
+const log = createLogger("docker");
 
 const docker = new Docker();
 
@@ -8,6 +11,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_MEMORY = 512 * 1024 * 1024; // 512MB
 const DEFAULT_CPU_PERIOD = 100_000;
 const DEFAULT_CPU_QUOTA = 100_000; // 1 core
+const DEFAULT_PIDS_LIMIT = 256;
 
 export interface ContainerExecOptions {
   agentName: string;
@@ -18,6 +22,10 @@ export interface ContainerExecOptions {
   env?: Record<string, string>;
   timeoutMs?: number;
   memoryBytes?: number;
+  allowNetwork?: boolean;
+  readOnlyRootFs?: boolean;
+  runAsUser?: string;
+  pidsLimit?: number;
 }
 
 export interface ContainerExecResult {
@@ -32,7 +40,7 @@ export async function ensureImage(image: string): Promise<void> {
   try {
     await docker.getImage(image).inspect();
   } catch {
-    console.log(`[docker] Pulling image: ${image}`);
+    log.info(`Pulling image: ${image}`);
     const stream = await docker.pull(image);
     await new Promise<void>((resolve, reject) => {
       docker.modem.followProgress(stream, (err: Error | null) => {
@@ -40,7 +48,7 @@ export async function ensureImage(image: string): Promise<void> {
         else resolve();
       });
     });
-    console.log(`[docker] Image pulled: ${image}`);
+    log.info(`Image pulled: ${image}`);
   }
 }
 
@@ -70,13 +78,17 @@ export async function execInContainer(
       Memory: opts.memoryBytes ?? DEFAULT_MEMORY,
       CpuPeriod: DEFAULT_CPU_PERIOD,
       CpuQuota: DEFAULT_CPU_QUOTA,
-      NetworkMode: "bridge",
-      ReadonlyRootfs: false,
+      NetworkMode: opts.allowNetwork ? "bridge" : "none",
+      ReadonlyRootfs: opts.readOnlyRootFs ?? true,
       SecurityOpt: ["no-new-privileges"],
+      CapDrop: ["ALL"],
+      PidsLimit: opts.pidsLimit ?? DEFAULT_PIDS_LIMIT,
+      Tmpfs: { "/tmp": "rw,noexec,nosuid,size=64m" },
     },
+    User: opts.runAsUser,
     Labels: {
-      "openclaw.agent": opts.agentName,
-      "openclaw.managed": "true",
+      "devclaw.agent": opts.agentName,
+      "devclaw.managed": "true",
     },
   });
 
@@ -148,7 +160,7 @@ export async function cleanupAgentContainers(agentName: string): Promise<number>
   const containers = await docker.listContainers({
     all: true,
     filters: {
-      label: [`openclaw.agent=${agentName}`, "openclaw.managed=true"],
+      label: [`devclaw.agent=${agentName}`, "devclaw.managed=true"],
     },
   });
 

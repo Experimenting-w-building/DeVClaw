@@ -11,9 +11,25 @@ import { createProposeAgentTool } from "./propose-agent.js";
 import { loadSkillsAsTools } from "../skills/loader.js";
 
 let _mcpTools: ToolSet = {};
+let _mcpPolicies: Record<string, string[] | undefined> = {};
+
+function canUseMCPTools(agentName: string): boolean {
+  const allowedAgents = (process.env.MCP_TOOL_AGENTS ?? "main")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return allowedAgents.includes(agentName);
+}
 
 export function setMCPTools(tools: ToolSet): void {
   _mcpTools = tools;
+  if (Object.keys(tools).length === 0) {
+    _mcpPolicies = {};
+  }
+}
+
+export function setMCPToolPolicies(policies: Record<string, string[] | undefined>): void {
+  _mcpPolicies = policies;
 }
 
 export function buildToolset(
@@ -61,8 +77,15 @@ export function buildToolset(
   const skillTools = loadSkillsAsTools(db, definition.name, agentsDir);
   Object.assign(tools, skillTools);
 
-  // Attach MCP server tools (shared across all agents)
-  Object.assign(tools, _mcpTools);
+  // Attach MCP tools only to explicitly allowed agents.
+  if (canUseMCPTools(definition.name)) {
+    for (const [name, def] of Object.entries(_mcpTools)) {
+      const allowed = _mcpPolicies[name];
+      if (!allowed || allowed.length === 0 || allowed.includes(definition.name)) {
+        tools[name] = def;
+      }
+    }
+  }
 
   return tools;
 }
