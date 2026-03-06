@@ -1,4 +1,23 @@
 services:
+  app:
+    build: .
+    image: devclaw-app
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/app/.env
+      - app-data:/app/data
+      - app-agents:/app/agents
+    depends_on:
+      sandbox:
+        condition: service_completed_successfully
+      browser:
+        condition: service_completed_successfully
+    environment:
+      - DASHBOARD_PORT=3000
+
   sandbox:
     build: ./container
     image: devclaw-sandbox
@@ -8,3 +27,7 @@ services:
       context: ./container
       dockerfile: Dockerfile.browser
     image: devclaw-browser
+
+volumes:
+  app-data:
+  app-agents:

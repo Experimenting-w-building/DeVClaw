@@ -4,14 +4,18 @@ import type Database from "better-sqlite3";
 import { join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { execInContainer, isDockerAvailable } from "../container/docker.js";
-import { listSkills, getSkillDir } from "./manager.js";
+import { listSkills, getSkillDir, verifySkillSignature } from "./manager.js";
 import { logAudit } from "../db/index.js";
 import { redactForAudit } from "../util/redact.js";
+import { createLogger } from "../util/logger.js";
+
+const log = createLogger("skill-loader");
 
 export function loadSkillsAsTools(
   db: Database.Database,
   agentName: string,
-  agentsDir: string
+  agentsDir: string,
+  masterKey?: string
 ): ToolSet {
   const skills = listSkills(db, agentName);
   const tools: ToolSet = {};
@@ -23,6 +27,25 @@ export function loadSkillsAsTools(
     );
 
     if (!existsSync(join(skillDir, "index.js"))) continue;
+
+    if (skill.tier === "trusted" && masterKey) {
+      const codePath = join(skillDir, "index.js");
+      const metaPath = join(skillDir, "metadata.json");
+      const code = readFileSync(codePath, "utf-8");
+      const meta = existsSync(metaPath) ? readFileSync(metaPath, "utf-8") : "";
+
+      if (!skill.signature) {
+        log.warn("Trusted skill has no signature, skipping", { agent: agentName, skill: skill.name });
+        logAudit(db, agentName, "skill_integrity_fail", `Skill ${skill.name}: missing signature`);
+        continue;
+      }
+
+      if (!verifySkillSignature(code, meta, masterKey, skill.signature)) {
+        log.warn("Trusted skill signature mismatch -- possible tampering", { agent: agentName, skill: skill.name });
+        logAudit(db, agentName, "skill_integrity_fail", `Skill ${skill.name}: signature mismatch`);
+        continue;
+      }
+    }
 
     const zodSchema = z.object({
       input: z.record(z.string(), z.unknown()).describe("Input matching the skill's schema"),

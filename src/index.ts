@@ -1,20 +1,31 @@
-import { loadConfig, parseMCPServers } from "./config.js";
+import { loadConfig, parseMCPServers, isConfigValid } from "./config.js";
 import { getDb, closeDb } from "./db/index.js";
 import { registerAgent } from "./agent/registry.js";
 import { runAgent } from "./agent/runtime.js";
 import { buildToolset, setMCPToolPolicies, setMCPTools } from "./tools/registry.js";
 import { MAIN_AGENT_PERSONALITY } from "./agent/prompts.js";
 import { startAllBots, stopAllBots } from "./channels/telegram.js";
+import { startWhatsApp, stopWhatsApp } from "./channels/whatsapp.js";
 import { loadAndScheduleAllTasks, stopAllTasks } from "./tools/scheduler.js";
 import { startDashboard } from "./web/server.js";
 import { warmup as warmupEmbedder } from "./memory/embedder.js";
 import { connectAllMCPServers, disconnectAllMCPServers } from "./tools/mcp-bridge.js";
+import { startSetupWizard, isConfigured } from "./web/setup.js";
 import * as readline from "node:readline";
 import { createLogger } from "./util/logger.js";
 
 const log = createLogger("main");
 
 async function main() {
+  // Bootstrap mode: if .env is missing or incomplete, start the setup wizard
+  if (!isConfigured() || !isConfigValid()) {
+    const port = Number(process.env.DASHBOARD_PORT ?? 3000);
+    log.info("Configuration incomplete -- starting setup wizard");
+    log.info(`Open http://localhost:${port}/setup in your browser`);
+    startSetupWizard(port);
+    return;
+  }
+
   const config = loadConfig();
   const db = getDb(config.dbPath);
 
@@ -50,7 +61,7 @@ async function main() {
   }
 
   const mainRuntime = registerAgent(db, config.agentsDir, mainDef);
-  mainRuntime.tools = buildToolset(db, mainDef, config.agentsDir);
+  mainRuntime.tools = buildToolset(db, mainDef, config.agentsDir, config.masterKey);
 
   log.info(`Main agent registered: ${mainRuntime.definition.displayName}`);
   log.info(`Model: ${mainRuntime.definition.model.provider}/${mainRuntime.definition.model.model}`);
@@ -71,6 +82,13 @@ async function main() {
   if (useTelegram) {
     log.info("Starting Telegram bots...");
     startAllBots();
+  }
+
+  // Start WhatsApp connection (if configured)
+  const useWhatsApp = process.argv.includes("--whatsapp");
+  if (useWhatsApp) {
+    log.info("Starting WhatsApp connection...");
+    await startWhatsApp();
   }
 
   // Warm model in background so startup stays responsive.
@@ -124,6 +142,7 @@ async function main() {
     log.info("Shutting down...");
     stopAllTasks();
     stopAllBots();
+    stopWhatsApp();
     await Promise.race([
       disconnectAllMCPServers(),
       new Promise<void>((resolve) => setTimeout(resolve, 3_000)),

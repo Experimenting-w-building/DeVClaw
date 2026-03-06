@@ -35,7 +35,8 @@ export function setMCPToolPolicies(policies: Record<string, string[] | undefined
 export function buildToolset(
   db: Database.Database,
   definition: AgentDefinition,
-  agentsDir = "agents"
+  agentsDir = "agents",
+  masterKey?: string
 ): ToolSet {
   const tools: ToolSet = {};
 
@@ -74,7 +75,7 @@ export function buildToolset(
   }
 
   // Load any existing skills as additional tools
-  const skillTools = loadSkillsAsTools(db, definition.name, agentsDir);
+  const skillTools = loadSkillsAsTools(db, definition.name, agentsDir, masterKey);
   Object.assign(tools, skillTools);
 
   // Attach MCP tools only to explicitly allowed agents.

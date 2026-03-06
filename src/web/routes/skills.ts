@@ -72,7 +72,7 @@ export function skillsRoutes(db: Database.Database) {
   app.post("/skills/:agent/:name/promote", (c) => {
     const { agent, name } = c.req.param();
     const config = loadConfig();
-    promoteSkill(db, config.agentsDir, agent, name);
+    promoteSkill(db, config.agentsDir, agent, name, config.masterKey);
     return c.redirect("/skills");
   });
 

@@ -14,6 +14,7 @@ import { logAudit } from "../db/index.js";
 import { checkRateLimit } from "../security/rate-limiter.js";
 import { createLogger } from "../util/logger.js";
 import { redactForAudit, redactSensitive } from "../util/redact.js";
+import { applyInjectionGuard, checkResponse } from "../security/injection.js";
 
 const log = createLogger("runtime");
 
@@ -47,13 +48,24 @@ export async function runAgent(
 
   persistMessage(db, definition.name, "user", userMessage);
 
-  const system = await buildSystemPromptWithMemory(
+  const baseSystem = await buildSystemPromptWithMemory(
     db,
     definition.name,
     definition.personality,
     agentsDir,
     userMessage
   );
+
+  const guard = applyInjectionGuard(baseSystem, userMessage);
+
+  if (guard.inputScan.flagged) {
+    logAudit(
+      db,
+      definition.name,
+      "injection_detected",
+      `Score: ${guard.inputScan.score}, Patterns: ${guard.inputScan.matches.join(", ")}`
+    );
+  }
 
   let history = loadConversationHistory(db, definition.name);
   history = await maybeSummarize(db, definition.name, definition.model, history);
@@ -67,7 +79,7 @@ export async function runAgent(
 
   const result = await callLLM({
     modelConfig: definition.model,
-    system,
+    system: guard.augmentedSystem,
     messages: history,
     tools: Object.keys(tools).length > 0 ? tools : undefined,
     maxSteps: 10,
@@ -81,7 +93,13 @@ export async function runAgent(
     },
   });
 
-  const response = result.text || "(no response)";
+  let response = result.text || "(no response)";
+
+  const canaryCheck = checkResponse(response, guard.canary);
+  if (canaryCheck.leaked) {
+    logAudit(db, definition.name, "canary_leak", "LLM response contained canary token");
+    response = response.replaceAll(guard.canary, "[REDACTED]");
+  }
   persistMessage(db, definition.name, "assistant", response);
 
   const totalTokens = result.usage.inputTokens + result.usage.outputTokens;

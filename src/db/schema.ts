@@ -90,6 +90,9 @@ export const MIGRATIONS = [
   // Incremental migration: add encrypted_bot_token if upgrading from older schema
   `ALTER TABLE agents ADD COLUMN encrypted_bot_token TEXT`,
 
+  // Skill integrity signatures for trusted skills
+  `ALTER TABLE skills ADD COLUMN signature TEXT`,
+
   // Long-term memory store
   `CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,

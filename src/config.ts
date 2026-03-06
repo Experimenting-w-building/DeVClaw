@@ -25,6 +25,8 @@ const AppConfigSchema = z.object({
 
   mainBotToken: z.string().min(1, "MAIN_BOT_TOKEN is required"),
 
+  whatsappOwnerJid: z.string().optional(),
+
   mcpServers: z.string().optional(),
 
   dbPath: z.string().default("data.db"),
@@ -65,10 +67,8 @@ export type AppConfig = z.infer<typeof AppConfigSchema>;
 
 let _config: AppConfig | null = null;
 
-export function loadConfig(): AppConfig {
-  if (_config) return _config;
-
-  const raw = {
+function buildRawConfig(): Record<string, string | undefined> {
+  return {
     nodeEnv: process.env.NODE_ENV,
     masterKey: process.env.MASTER_KEY,
     ownerChatId: process.env.OWNER_CHAT_ID,
@@ -83,11 +83,22 @@ export function loadConfig(): AppConfig {
     llmTimeoutMs: process.env.LLM_TIMEOUT_MS,
     llmMaxRetries: process.env.LLM_MAX_RETRIES,
     mainBotToken: process.env.MAIN_BOT_TOKEN,
+    whatsappOwnerJid: process.env.WHATSAPP_OWNER_JID,
     mcpServers: process.env.MCP_SERVERS,
     dbPath: process.env.DB_PATH,
     agentsDir: process.env.AGENTS_DIR,
   };
+}
 
+export function isConfigValid(): boolean {
+  const result = AppConfigSchema.safeParse(buildRawConfig());
+  return result.success;
+}
+
+export function loadConfig(): AppConfig {
+  if (_config) return _config;
+
+  const raw = buildRawConfig();
   const result = AppConfigSchema.safeParse(raw);
   if (!result.success) {
     const issues = result.error.issues

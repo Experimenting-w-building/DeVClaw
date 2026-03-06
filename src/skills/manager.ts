@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { createHash } from "node:crypto";
+import { randomUUID, createHash, createHmac } from "node:crypto";
 import {
   readFileSync,
   writeFileSync,
@@ -11,6 +10,9 @@ import { join } from "node:path";
 import type Database from "better-sqlite3";
 import type { SkillTier, SkillDefinition } from "../types.js";
 import { SkillMetadataSchema } from "./types.js";
+import { createLogger } from "../util/logger.js";
+
+const log = createLogger("skills");
 
 export function getSkillDir(agentsDir: string, agentName: string, tier: SkillTier): string {
   return join(agentsDir, agentName, "skills", tier);
@@ -43,6 +45,7 @@ export function createSkill(
     inputSchema,
     codeHash,
     tier: "sandbox",
+    signature: null,
     createdAt: new Date().toISOString(),
     lastUsedAt: null,
   };
@@ -60,11 +63,34 @@ export function createSkill(
   return skill;
 }
 
+export function signSkillContent(code: string, metadata: string, masterKey: string): string {
+  return createHmac("sha256", masterKey)
+    .update(code)
+    .update(metadata)
+    .digest("hex");
+}
+
+export function verifySkillSignature(
+  code: string,
+  metadata: string,
+  masterKey: string,
+  signature: string
+): boolean {
+  const expected = signSkillContent(code, metadata, masterKey);
+  if (expected.length !== signature.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < expected.length; i++) {
+    mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
 export function promoteSkill(
   db: Database.Database,
   agentsDir: string,
   agentName: string,
-  skillName: string
+  skillName: string,
+  masterKey: string
 ): boolean {
   const sandboxDir = join(getSkillDir(agentsDir, agentName, "sandbox"), skillName);
   const trustedDir = join(getSkillDir(agentsDir, agentName, "trusted"), skillName);
@@ -78,11 +104,17 @@ export function promoteSkill(
     writeFileSync(join(trustedDir, file), content);
   }
 
-  db.prepare("UPDATE skills SET tier = 'trusted' WHERE agent_name = ? AND name = ?").run(
-    agentName,
-    skillName
-  );
+  const codePath = join(trustedDir, "index.js");
+  const metaPath = join(trustedDir, "metadata.json");
+  const code = existsSync(codePath) ? readFileSync(codePath, "utf-8") : "";
+  const meta = existsSync(metaPath) ? readFileSync(metaPath, "utf-8") : "";
+  const signature = signSkillContent(code, meta, masterKey);
 
+  db.prepare(
+    "UPDATE skills SET tier = 'trusted', signature = ? WHERE agent_name = ? AND name = ?"
+  ).run(signature, agentName, skillName);
+
+  log.info("Skill promoted and signed", { agent: agentName, skill: skillName });
   return true;
 }
 
@@ -127,6 +159,7 @@ export function listSkills(
     inputSchema: JSON.parse(row.input_schema as string),
     codeHash: row.code_hash as string,
     tier: row.tier as SkillTier,
+    signature: (row.signature as string) ?? null,
     createdAt: row.created_at as string,
     lastUsedAt: row.last_used_at as string | null,
   }));
@@ -150,6 +183,7 @@ export function getSkill(
     inputSchema: JSON.parse(row.input_schema as string),
     codeHash: row.code_hash as string,
     tier: row.tier as SkillTier,
+    signature: (row.signature as string) ?? null,
     createdAt: row.created_at as string,
     lastUsedAt: row.last_used_at as string | null,
   };

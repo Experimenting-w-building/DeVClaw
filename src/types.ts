@@ -68,6 +68,7 @@ export interface SkillDefinition {
   inputSchema: Record<string, unknown>;
   codeHash: string;
   tier: SkillTier;
+  signature: string | null;
   createdAt: string;
   lastUsedAt: string | null;
 }

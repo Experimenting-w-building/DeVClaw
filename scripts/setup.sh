@@ -60,10 +60,13 @@ else
 fi
 
 if command -v docker &>/dev/null; then
+  DOCKER_VER=$(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo 'available')
   if docker info &>/dev/null; then
-    ok "Docker $(docker --version | grep -oP '\d+\.\d+\.\d+' || echo 'available')"
+    ok "Docker ${DOCKER_VER}"
   else
-    warn "Docker installed but daemon not running -- start Docker Desktop or dockerd"
+    fail "Docker installed but daemon not running"
+    echo "       Start Docker Desktop or run: sudo systemctl start docker"
+    MISSING=1
   fi
 else
   fail "Docker not found (required for container-isolated tool execution)"
@@ -76,7 +79,8 @@ else
 fi
 
 if command -v git &>/dev/null; then
-  ok "Git $(git --version | grep -oP '\d+\.\d+\.\d+' || echo 'available')"
+  GIT_VER=$(git --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo 'available')
+  ok "Git ${GIT_VER}"
 else
   warn "Git not found (optional, needed only for cloning)"
 fi
@@ -110,27 +114,74 @@ fi
 
 if [ "$SKIP_ENV" -eq 0 ]; then
   MASTER_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-  ok "Generated MASTER_KEY"
+  ok "Generated MASTER_KEY automatically"
 
   echo ""
   echo -e "  ${DIM}You'll need a few things from Telegram:${NC}"
-  echo -e "  ${DIM}  1. Your numeric user ID (message @userinfobot)${NC}"
-  echo -e "  ${DIM}  2. A bot token (create one with @BotFather)${NC}"
+  echo -e "  ${DIM}  1. Your numeric user ID (message @userinfobot on Telegram)${NC}"
+  echo -e "  ${DIM}  2. A bot token (create one with @BotFather on Telegram)${NC}"
   echo ""
 
+  # --- LLM API Keys ---
   read -rp "  Anthropic API key (or press Enter to skip): " ANTHROPIC_KEY
   read -rp "  OpenAI API key (or press Enter to skip): " OPENAI_KEY
   read -rp "  Google AI API key (or press Enter to skip): " GOOGLE_KEY
+
+  if [ -z "$ANTHROPIC_KEY" ] && [ -z "$OPENAI_KEY" ] && [ -z "$GOOGLE_KEY" ]; then
+    fail "At least one LLM API key is required"
+    exit 1
+  fi
+
+  # Auto-detect provider
+  if [ -n "$ANTHROPIC_KEY" ]; then
+    PROVIDER="anthropic"
+  elif [ -n "$OPENAI_KEY" ]; then
+    PROVIDER="openai"
+  else
+    PROVIDER="google"
+  fi
+  ok "Default provider: ${PROVIDER}"
+
+  # --- Telegram ---
   read -rp "  Telegram user ID (OWNER_CHAT_ID): " OWNER_CHAT_ID
+  if ! [[ "$OWNER_CHAT_ID" =~ ^[0-9]+$ ]]; then
+    fail "OWNER_CHAT_ID must be numeric (get it from @userinfobot on Telegram)"
+    exit 1
+  fi
+
   read -rp "  Main bot token (MAIN_BOT_TOKEN): " MAIN_BOT_TOKEN
-  read -rp "  Dashboard password: " DASHBOARD_PASSWORD
+  if [ -z "$MAIN_BOT_TOKEN" ]; then
+    fail "Bot token is required"
+    exit 1
+  fi
+
+  # Validate Telegram token
+  echo -e "  ${DIM}Verifying bot token...${NC}"
+  BOT_RESPONSE=$(curl -s "https://api.telegram.org/bot${MAIN_BOT_TOKEN}/getMe" 2>/dev/null || echo '{"ok":false}')
+  if echo "$BOT_RESPONSE" | grep -q '"ok":true'; then
+    BOT_USERNAME=$(echo "$BOT_RESPONSE" | grep -oE '"username":"[^"]+"' | head -1 | cut -d'"' -f4)
+    ok "Bot verified: @${BOT_USERNAME}"
+  else
+    warn "Could not verify bot token (may still work -- check your token if issues arise)"
+  fi
+
+  # --- Dashboard ---
+  read -rsp "  Dashboard password (min 8 chars): " DASHBOARD_PASSWORD
+  echo ""
+  if [ ${#DASHBOARD_PASSWORD} -lt 8 ]; then
+    fail "Password must be at least 8 characters"
+    exit 1
+  fi
+  ok "Dashboard password set"
 
   cat > .env <<ENVEOF
+NODE_ENV=production
 MASTER_KEY=${MASTER_KEY}
 
 ANTHROPIC_API_KEY=${ANTHROPIC_KEY}
 OPENAI_API_KEY=${OPENAI_KEY}
 GOOGLE_API_KEY=${GOOGLE_KEY}
+MAIN_MODEL_PROVIDER=${PROVIDER}
 
 OWNER_CHAT_ID=${OWNER_CHAT_ID}
 MAIN_BOT_TOKEN=${MAIN_BOT_TOKEN}
@@ -139,7 +190,8 @@ DASHBOARD_PORT=3000
 DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD}
 ENVEOF
 
-  ok ".env written"
+  chmod 600 .env
+  ok ".env written (permissions: 600)"
 fi
 
 # ─── Build containers ──────────────────────────────────────────
@@ -147,19 +199,39 @@ step "Building Docker containers"
 
 if docker info &>/dev/null; then
   echo -e "  ${DIM}Building sandbox container...${NC}"
-  docker build -t devclaw-sandbox container/ -q && ok "devclaw-sandbox built" || warn "sandbox build failed (tools will be unavailable)"
+  if docker build -t devclaw-sandbox container/ -q >/dev/null 2>&1; then
+    ok "devclaw-sandbox built"
+  else
+    fail "Sandbox container build failed"
+    echo "       Fix Docker issues and run: docker build -t devclaw-sandbox container/"
+    exit 1
+  fi
 
   echo -e "  ${DIM}Building browser container...${NC}"
-  docker build -t devclaw-browser -f container/Dockerfile.browser container/ -q && ok "devclaw-browser built" || warn "browser build failed (browse tool unavailable)"
+  if docker build -t devclaw-browser -f container/Dockerfile.browser container/ -q >/dev/null 2>&1; then
+    ok "devclaw-browser built"
+  else
+    warn "Browser container build failed (browse tool will be unavailable)"
+    echo "       Run later: docker build -t devclaw-browser -f container/Dockerfile.browser container/"
+  fi
 else
-  warn "Docker daemon not running -- skipping container builds"
-  echo "       Run 'docker compose build' later when Docker is available"
+  fail "Docker daemon not running -- cannot build containers"
+  echo "       Start Docker and re-run this script"
+  exit 1
 fi
 
 # ─── Build TypeScript ──────────────────────────────────────────
 step "Building TypeScript"
 npm run build --silent
 ok "Build complete"
+
+# ─── Run security audit ────────────────────────────────────────
+step "Running security audit"
+if npx tsx src/audit.ts 2>/dev/null; then
+  ok "Security audit passed"
+else
+  warn "Security audit found issues (review output above)"
+fi
 
 # ─── Install background service ────────────────────────────────
 step "Installing background service"
@@ -191,6 +263,7 @@ case "$(uname -s)" in
     ;;
 esac
 echo ""
+echo -e "  ${BOLD}Audit:${NC}      npm run audit"
 echo -e "  ${BOLD}Uninstall:${NC}  bash scripts/install-service.sh --uninstall"
 echo -e "  ${BOLD}Dev mode:${NC}   npm run dev ${DIM}(stop service first)${NC}"
 echo ""

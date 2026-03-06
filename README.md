@@ -12,15 +12,27 @@ Inspired by [OpenClaw](https://github.com/openclaw) and the many iterations the 
 
 No cloud dependencies. No vendor lock-in. Your data stays on your machine.
 
+## Deploy
+
+| Method | Difficulty | What you need |
+|--------|-----------|---------------|
+| **[Docker Compose](#docker-compose-recommended)** | Easiest | Docker only |
+| **[One-click cloud](#cloud-deploy)** | Easy | Railway or Fly.io account |
+| **[Setup script](#setup-script)** | Moderate | Node.js 22+ and Docker |
+| **[Manual](#manual-setup)** | Advanced | Full dev environment |
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/devclaw?referralCode=automated-engineering)
+
 ## Features
 
 - **Multi-agent orchestration** -- A main agent that delegates to specialist sub-agents, each with their own personality, skills, and Telegram bot
 - **Long-term memory** -- Tiered memory system with local vector embeddings (no API calls), semantic retrieval, automatic fact extraction, and conversation summarization. ~3K tokens per call instead of 10K+
 - **Self-building tools** -- Agents write their own JavaScript skills, which run in sandboxed Docker containers and persist across sessions
 - **Container isolation** -- Every shell command, skill execution, and browser session runs inside Docker. Nothing touches the host
-- **Telegram-native** -- Talk to your agents directly. Create new sub-agents via conversation. No web UI required (but there is one)
+- **Telegram + WhatsApp** -- Talk to your agents on Telegram or WhatsApp. Create new sub-agents via conversation. No web UI required (but there is one)
 - **MCP compatible** -- Plug in any [Model Context Protocol](https://modelcontextprotocol.io) server and its tools become available to all agents
 - **Multi-provider LLM** -- Anthropic, OpenAI, and Google supported natively via their official SDKs. No abstraction layer in between
+- **WhatsApp support** -- Connect via WhatsApp alongside Telegram. QR-code pairing, owner-only access, automatic reconnection
 - **Scheduled tasks** -- Cron-based task scheduling with automatic execution and Telegram delivery
 - **Web dashboard** -- Real-time view of agents, skills, tasks, and audit logs. Password-protected, accessible remotely via Cloudflare Tunnel
 - **Encrypted secrets** -- Bot tokens and API keys encrypted with AES-256-GCM at rest. Never stored in plaintext
@@ -30,12 +42,12 @@ No cloud dependencies. No vendor lock-in. Your data stays on your machine.
 ```
           You
            │
-    ┌──────┴──────┐
-    │             │
-Telegram      Dashboard
- (grammY)    (Hono/HTMX)
-    │             │
-    └──────┬──────┘
+    ┌──────┼──────────┐
+    │      │          │
+Telegram WhatsApp  Dashboard
+ (grammY) (Baileys) (Hono/HTMX)
+    │      │          │
+    └──────┴────┬─────┘
            │
            ▼
    ┌───────────────────────────────────────┐
@@ -76,14 +88,44 @@ Telegram      Dashboard
 
 ## Quick Start
 
-### Prerequisites
+### Docker Compose (recommended)
 
-- **Node.js 22+** -- `brew install node@22` (macOS) or [nodejs.org](https://nodejs.org)
-- **Docker** -- [Docker Desktop](https://docs.docker.com/desktop/) or `dockerd`
-- **A Telegram bot token** -- Create one with [@BotFather](https://t.me/BotFather)
-- **An LLM API key** -- Anthropic, OpenAI, or Google (at least one)
+The easiest path. You only need [Docker](https://docs.docker.com/desktop/) installed.
 
-### One-command setup
+```bash
+git clone https://github.com/automated-engineering/devclaw.git
+cd devclaw
+docker compose up
+```
+
+Open `http://localhost:3000/setup` in your browser. The setup wizard walks you through everything:
+
+1. Choose your LLM provider and paste your API key (validated live)
+2. Create a Telegram bot with @BotFather and paste the token (validated live)
+3. Set a dashboard password
+4. Optionally configure WhatsApp
+5. Review and launch
+
+The wizard writes your `.env` file automatically, generates encryption keys, and restarts the agent. No terminal editing required.
+
+### Cloud Deploy
+
+**Railway** -- One click, no server needed. LLM + Telegram + memory + dashboard all work. Sandbox tools (shell, browser) require Docker socket access and are unavailable on Railway.
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/devclaw?referralCode=automated-engineering)
+
+**Fly.io** -- Full functionality including sandbox tools with persistent volumes.
+
+```bash
+fly launch --copy-config
+fly secrets set MASTER_KEY=$(openssl rand -hex 32)
+# Set remaining secrets via: fly secrets set KEY=VALUE
+fly deploy
+```
+
+### Setup Script
+
+For local machines (Mac Mini, laptop, VPS) where you want the full experience with background service:
 
 ```bash
 git clone https://github.com/automated-engineering/devclaw.git
@@ -91,31 +133,9 @@ cd devclaw
 bash scripts/setup.sh
 ```
 
-The setup script checks your system, installs dependencies, walks you through configuration, builds the Docker containers, compiles TypeScript, and installs DeVClaw as a background service. When it's done, the agent is already running -- it starts on boot and restarts on crash automatically.
+The script checks prerequisites, installs dependencies, walks you through configuration with live validation (verifies your Telegram token and API keys), builds containers, compiles TypeScript, runs a security audit, and installs DeVClaw as a background service.
 
-For development and testing, stop the service first and use:
-
-```bash
-# Dev mode with hot reload
-npm run dev
-
-# Local REPL only (no Telegram)
-npm start
-
-# Both Telegram and local REPL
-npm start -- --telegram --repl
-
-# Run tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Typecheck without emitting
-npm run typecheck
-```
-
-### Manual setup
+### Manual Setup
 
 ```bash
 git clone https://github.com/automated-engineering/devclaw.git
@@ -126,6 +146,20 @@ cp .env.example .env
 docker compose build
 npm run build
 bash scripts/install-service.sh   # installs + starts the background service
+```
+
+### Development Commands
+
+```bash
+npm run dev          # Dev mode with hot reload
+npm start            # Local REPL only (no Telegram)
+npm start -- --telegram --repl   # Telegram + local REPL
+npm start -- --whatsapp          # WhatsApp channel
+npm start -- --telegram --whatsapp  # Both channels
+npm run audit        # Security audit
+npm test             # Run tests
+npm run test:watch   # Tests in watch mode
+npm run typecheck    # TypeScript check
 ```
 
 ## Configuration
@@ -150,6 +184,7 @@ All configuration lives in a single `.env` file:
 | `DASHBOARD_SKIP_AUTH` | No | Set to `true` to skip login (local dev only -- never use in production) |
 | `DASHBOARD_ALLOWED_ORIGINS` | No | Comma-separated extra trusted origins for dashboard POST checks |
 | `LOG_LEVEL` | No | Log level: `debug`, `info`, `warn`, `error` (default: `info`) |
+| `WHATSAPP_OWNER_JID` | No | Your WhatsApp JID (`<country><number>@s.whatsapp.net`). Required for `--whatsapp` |
 | `MCP_SERVERS` | No | JSON array of MCP server configs (see MCP section) |
 | `MCP_TOOL_AGENTS` | No | Comma-separated agent names allowed to use MCP tools (default: `main`) |
 | `MCP_ENV_ALLOWLIST` | No | Comma-separated host env vars passed to MCP processes |
@@ -173,6 +208,38 @@ Example -- ask your main agent:
 > "I need a trader agent that specializes in crypto markets. It should be analytical, risk-aware, and report in short bullet points."
 
 The main agent will draft the personality, propose the agent, and guide you through approval.
+
+## WhatsApp
+
+DeVClaw supports WhatsApp as an alternative (or additional) messaging channel alongside Telegram.
+
+### Setup
+
+1. Set your WhatsApp phone number in `.env`:
+
+```bash
+WHATSAPP_OWNER_JID=14155551234@s.whatsapp.net
+```
+
+2. Start with the `--whatsapp` flag:
+
+```bash
+npm start -- --whatsapp
+# or both channels:
+npm start -- --telegram --whatsapp
+```
+
+3. On first run, a QR code will be logged to the console. Scan it with your phone's WhatsApp (Linked Devices > Link a Device).
+
+4. Auth state is persisted in `agents/main/whatsapp-auth/`. Subsequent restarts reconnect automatically without re-scanning.
+
+### How it works
+
+- Uses `@whiskeysockets/baileys` (WhatsApp Web protocol, no browser required)
+- Only messages from `WHATSAPP_OWNER_JID` are processed (same owner-only model as Telegram)
+- Automatic reconnection on connection drops (except logout)
+- Typing indicators while the agent thinks
+- Messages chunked at 4096 chars (matching Telegram behavior)
 
 ## MCP Servers
 
@@ -267,16 +334,18 @@ Bot tokens are encrypted with AES-256-GCM before storage and the approval messag
 
 - **Container isolation** -- All tool execution (shell, browser, skills) happens inside Docker containers with constrained CPU/memory/PIDs and dropped capabilities
 - **Encrypted secrets** -- Bot tokens and sensitive config encrypted at rest with AES-256-GCM using a master key
-- **Owner-only access** -- Only messages from your `OWNER_CHAT_ID` are processed by any bot
-- **Skill sandboxing** -- Agent-created skills start in a sandbox tier. You can promote them to trusted after review
+- **Owner-only access** -- Only messages from your `OWNER_CHAT_ID` (Telegram) or `WHATSAPP_OWNER_JID` (WhatsApp) are processed
+- **Prompt injection defense** -- Every LLM call includes a canary token in the system prompt. If the model leaks it (indicating injection success), the response is automatically redacted. Incoming messages are also scanned against 15+ heuristic patterns for known injection techniques (ignore-previous-instructions, persona overrides, special token injection, etc.)
+- **Skill sandboxing + integrity** -- Agent-created skills start in a sandbox tier. When promoted to trusted, skills are HMAC-signed with the master key. On every load, trusted skills are verified against their stored signature -- tampered files are refused and logged
 - **Rate limiting** -- Built-in rate limits on LLM calls to prevent runaway costs, and brute-force protection on dashboard login
-- **Audit logging** -- Every action (LLM calls, tool executions, skill runs, agent proposals) is logged with timestamps
+- **Audit logging** -- Every action (LLM calls, tool executions, skill runs, agent proposals, injection attempts) is logged with timestamps
 - **Audit redaction** -- Sensitive tool input fields (tokens, passwords, API keys, auth headers) are redacted before audit persistence
 - **Structured logging** -- All runtime logs use a leveled logger (`LOG_LEVEL` env var: debug/info/warn/error) with timestamps and module tags
 - **Dashboard auth** -- Password-protected with signed session cookies (HttpOnly, SameSite=Lax, Secure over HTTPS)
 - **CSRF + origin checks** -- Dashboard state-changing POST routes validate same-origin and CSRF tokens
 - **Security headers** -- Dashboard responses set CSP, frame deny, content-type nosniff, referrer policy, and permissions policy
 - **LLM resilience controls** -- Configurable timeout/retry policy for provider calls (`LLM_TIMEOUT_MS`, `LLM_MAX_RETRIES`)
+- **Security audit CLI** -- `npm run audit` checks your configuration for weak passwords, missing env vars, Docker availability, container image health, MCP env exposure, file permissions, and more. Returns exit code 1 on failures for CI integration
 
 ## Remote Dashboard Access
 
@@ -330,6 +399,7 @@ bash scripts/install-service.sh --uninstall  # remove
 devclaw/
 ├── src/
 │   ├── index.ts              # Entry point
+│   ├── audit.ts              # Security audit CLI entry point
 │   ├── config.ts             # Environment config + validation
 │   ├── types.ts              # Core types, tool system
 │   ├── agent/
@@ -354,17 +424,22 @@ devclaw/
 │   │   ├── propose-agent.ts  # Dynamic agent proposals
 │   │   └── mcp-bridge.ts     # MCP server connector
 │   ├── channels/
-│   │   └── telegram.ts       # grammY multi-bot management
+│   │   ├── telegram.ts       # grammY multi-bot management
+│   │   └── whatsapp.ts       # Baileys WhatsApp Web connection
 │   ├── web/
 │   │   ├── server.ts         # Hono dashboard server + auth
+│   │   ├── setup.ts          # First-run setup wizard
 │   │   ├── views/layout.ts   # Dashboard HTML template
+│   │   ├── views/setup-layout.ts  # Setup wizard template
 │   │   └── routes/           # Dashboard pages
 │   ├── db/
 │   │   ├── index.ts          # SQLite + sqlite-vec init
 │   │   └── schema.ts         # Table migrations
 │   ├── security/
 │   │   ├── crypto.ts         # AES-256-GCM encryption
-│   │   └── rate-limiter.ts   # Request rate limiting
+│   │   ├── rate-limiter.ts   # Request rate limiting
+│   │   ├── injection.ts      # Prompt injection canary + heuristic scanner
+│   │   └── audit.ts          # Security audit checks
 │   ├── skills/
 │   │   ├── manager.ts        # Skill CRUD
 │   │   ├── loader.ts         # Skills-to-tools converter
@@ -377,7 +452,8 @@ devclaw/
 │   └── util/
 │       ├── zod-to-json.ts    # Zod v4 JSON Schema converter
 │       ├── html.ts           # HTML escaping for XSS prevention
-│       └── logger.ts         # Structured leveled logger
+│       ├── logger.ts         # Structured leveled logger
+│       └── validate.ts       # Token/key validation helpers
 ├── container/
 │   ├── Dockerfile            # Sandbox container (Node.js + common tools)
 │   ├── Dockerfile.browser    # Browser container (Playwright + Chromium)
@@ -386,7 +462,11 @@ devclaw/
 │   ├── setup.sh              # One-command setup
 │   ├── install-service.sh    # Autostart service installer (launchd/systemd)
 │   └── setup-tunnel.sh       # Cloudflare Tunnel helper
-├── docker-compose.yml        # Container image builder
+├── Dockerfile                # App container (multi-stage build)
+├── docker-compose.yml        # Full-stack orchestration (app + sandbox + browser)
+├── railway.json              # Railway deploy config
+├── fly.toml                  # Fly.io deploy config
+├── .dockerignore             # Docker build exclusions
 ├── .github/workflows/ci.yml  # CI pipeline (typecheck, test, build)
 ├── vitest.config.ts
 ├── package.json
@@ -399,6 +479,7 @@ devclaw/
 - **Runtime**: Node.js 22+ / TypeScript
 - **LLM**: Anthropic SDK, OpenAI SDK, Google GenAI SDK (direct, no abstraction layer)
 - **Telegram**: grammY
+- **WhatsApp**: @whiskeysockets/baileys
 - **Database**: better-sqlite3 + sqlite-vec (vector search)
 - **Embeddings**: @huggingface/transformers (local ONNX, all-MiniLM-L6-v2)
 - **Containers**: dockerode (Docker API client)
@@ -417,13 +498,61 @@ How DeVClaw compares to other agent frameworks, ordered by resource footprint:
 | **RAM** | ~1 MB | < 5 MB | < 10 MB | > 100 MB | ~300-400 MB | > 1 GB |
 | **Startup (0.8 GHz)** | < 8 ms | < 10 ms | < 1 s | > 30 s | ~30-60 s | > 500 s |
 | **Binary Size** | 678 KB | 3.4 MB | ~8 MB | N/A (scripts) | ~100 KB (dist) | ~28 MB (dist) |
-| **Tests** | 3,230+ | 1,017 | -- | -- | 15+ | -- |
-| **Source Files** | ~110 | ~120 | -- | -- | ~30 | ~400+ |
+| **Tests** | 3,230+ | 1,017 | -- | -- | 60+ | -- |
+| **Source Files** | ~110 | ~120 | -- | -- | ~35 | ~400+ |
 | **Cost** | Any $5 hardware | Any $10 hardware | Linux board $10 | Linux SBC ~$50 | Any $5 VPS / Mac Mini | Mac Mini $599 |
 
 DeVClaw uses ~1/3 the RAM of OpenClaw with ~1/13 the source files. The embedding model (~150MB resident) is the main memory cost -- without it, the core agent sits around ~150MB. Startup is dominated by ONNX model loading; on a modern Mac Mini it's closer to ~5s.
 
 The compiled-language frameworks (Zig, Rust, Go) will always win on raw efficiency. DeVClaw trades that for development speed, readability (~30 files you can audit in an afternoon), and access to the npm ecosystem -- MCP SDK, grammY, HuggingFace transformers, and hundreds of other packages that just work.
+
+## Troubleshooting
+
+**Docker Compose won't start / port conflict**
+
+```bash
+# Check what's using port 3000
+lsof -i :3000
+# Use a different port
+DASHBOARD_PORT=3001 docker compose up
+```
+
+**"MASTER_KEY is required" on startup**
+
+Your `.env` is missing or incomplete. Run through the setup wizard (`http://localhost:3000/setup`) or generate one manually:
+
+```bash
+cp .env.example .env
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# Paste the output as MASTER_KEY in .env
+```
+
+**WhatsApp QR code doesn't appear**
+
+Make sure you're running with `--whatsapp` and check the container logs. The QR code is printed to stdout. If you previously paired, delete `agents/main/whatsapp-auth/` and restart.
+
+**Embedding model download hangs**
+
+The first run downloads `all-MiniLM-L6-v2` (~80MB). If your network is slow or blocked, the agent may appear to hang during startup. Wait for the download to complete, or pre-download by running:
+
+```bash
+npx tsx -e "import('@huggingface/transformers').then(m => m.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2'))"
+```
+
+**Security audit fails in CI**
+
+`npm run audit` exits with code 1 when checks fail. Common issues: `NODE_ENV` not set to `production`, `DASHBOARD_SKIP_AUTH=true` in production, weak dashboard password. Review the audit output for specifics.
+
+**Container sandbox tools fail**
+
+Ensure Docker is running and the socket is accessible. On Linux, your user may need to be in the `docker` group:
+
+```bash
+sudo usermod -aG docker $USER
+# Log out and back in for the group change to take effect
+```
+
+On cloud platforms without Docker socket access (like Railway), sandbox tools (shell, browser) are unavailable. Memory, LLM, scheduling, and messaging channels all work without Docker.
 
 ## License
 

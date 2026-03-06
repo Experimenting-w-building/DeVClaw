@@ -88,7 +88,7 @@ export function registerAgentDynamic(
   upsertAgent(db, parsed, encryptedToken);
   setupAgentDirs(agentsDir, parsed);
 
-  const tools = buildToolset(db, parsed, agentsDir);
+  const tools = buildToolset(db, parsed, agentsDir, config.masterKey);
 
   const runtime: AgentRuntime = {
     definition: parsed,
