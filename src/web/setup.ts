@@ -15,14 +15,17 @@ import { createLogger } from "../util/logger.js";
 const log = createLogger("setup");
 const TOTAL_STEPS = 5;
 
+type ChannelChoice = "telegram" | "whatsapp" | "both";
+
 interface SetupState {
   provider?: string;
   apiKey?: string;
+  channels?: ChannelChoice;
   botToken?: string;
   botUsername?: string;
   ownerChatId?: string;
-  dashboardPassword?: string;
   whatsappJid?: string;
+  dashboardPassword?: string;
 }
 
 const state: SetupState = {};
@@ -34,8 +37,7 @@ function stepWelcome(cspNonce?: string): string {
     <div class="info-box">
       <ol>
         <li>An API key from <strong>Anthropic</strong>, <strong>OpenAI</strong>, or <strong>Google</strong></li>
-        <li>A <strong>Telegram bot token</strong> (you'll create one with @BotFather)</li>
-        <li>Your <strong>Telegram user ID</strong> (from @userinfobot)</li>
+        <li>A messaging channel: <strong>Telegram</strong>, <strong>WhatsApp</strong>, or both</li>
       </ol>
     </div>
     <p class="dim">Takes about 5 minutes. All data stays on your machine.</p>
@@ -82,39 +84,88 @@ function stepProvider(error?: string, cspNonce?: string): string {
   `, cspNonce);
 }
 
-function stepTelegram(error?: string, cspNonce?: string): string {
+function stepChannels(error?: string, cspNonce?: string): string {
   const errorHtml = error ? `<p class="error-text">${escapeHtml(error)}</p>` : "";
-  return setupLayout("Telegram", 3, TOTAL_STEPS, `
-    <h1>Connect Telegram</h1>
-    <p class="dim">Your agent lives on Telegram. Follow these steps:</p>
-    <div class="info-box">
-      <ol>
-        <li>Open Telegram and message <code>@BotFather</code></li>
-        <li>Send <code>/newbot</code> and follow the prompts</li>
-        <li>Copy the <strong>bot token</strong> (looks like <code>123456:ABCdef...</code>)</li>
-        <li>Message <code>@userinfobot</code> to get your <strong>numeric user ID</strong></li>
-      </ol>
-    </div>
-    ${errorHtml}
-    <form method="POST" action="/setup/telegram">
+  const selected = state.channels ?? "telegram";
+
+  const telegramFields = `
+    <div id="telegram-fields" class="channel-fields">
+      <div class="info-box" style="margin-bottom:16px;">
+        <ol>
+          <li>Open Telegram and message <code>@BotFather</code></li>
+          <li>Send <code>/newbot</code> and follow the prompts</li>
+          <li>Copy the <strong>bot token</strong> (looks like <code>123456:ABCdef...</code>)</li>
+          <li>Message <code>@userinfobot</code> to get your <strong>numeric user ID</strong></li>
+        </ol>
+      </div>
       <div class="form-group">
         <label class="form-label" for="botToken">Bot Token</label>
         <input type="text" id="botToken" name="botToken" class="form-input"
           placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-          value="${escapeHtml(state.botToken ?? "")}" required autocomplete="off">
+          value="${escapeHtml(state.botToken ?? "")}" autocomplete="off">
       </div>
       <div class="form-group">
         <label class="form-label" for="ownerChatId">Your User ID</label>
         <input type="text" id="ownerChatId" name="ownerChatId" class="form-input"
           placeholder="123456789"
-          value="${escapeHtml(state.ownerChatId ?? "")}" required autocomplete="off">
+          value="${escapeHtml(state.ownerChatId ?? "")}" autocomplete="off">
         <p class="form-hint">Only this user can talk to your agent.</p>
       </div>
+    </div>`;
+
+  const whatsappFields = `
+    <div id="whatsapp-fields" class="channel-fields">
+      <div class="info-box" style="margin-bottom:16px;">
+        <p>Enter your WhatsApp phone number in JID format: <code>&lt;country&gt;&lt;number&gt;@s.whatsapp.net</code></p>
+        <p>Example: <code>14155551234@s.whatsapp.net</code> (US number 415-555-1234)</p>
+        <p>On first start, a QR code will appear in the logs. Scan it with WhatsApp on your phone.</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="whatsappJid">WhatsApp JID</label>
+        <input type="text" id="whatsappJid" name="whatsappJid" class="form-input"
+          placeholder="14155551234@s.whatsapp.net"
+          value="${escapeHtml(state.whatsappJid ?? "")}" autocomplete="off">
+      </div>
+    </div>`;
+
+  return setupLayout("Messaging Channel", 3, TOTAL_STEPS, `
+    <h1>Choose your messaging channel</h1>
+    <p class="dim">How do you want to talk to your agent?</p>
+    ${errorHtml}
+    <form method="POST" action="/setup/channels">
+      <div class="provider-cards" style="margin-bottom:20px;">
+        <label class="provider-card${selected === "telegram" ? " selected" : ""}" onclick="this.querySelector('input').checked=true;document.querySelectorAll('.provider-card').forEach(c=>c.classList.remove('selected'));this.classList.add('selected');showChannelFields('telegram')">
+          <input type="radio" name="channels" value="telegram"${selected === "telegram" ? " checked" : ""}>
+          Telegram<br><span style="font-weight:400;font-size:12px;color:var(--text-dim)">Full features + sub-agents</span>
+        </label>
+        <label class="provider-card${selected === "whatsapp" ? " selected" : ""}" onclick="this.querySelector('input').checked=true;document.querySelectorAll('.provider-card').forEach(c=>c.classList.remove('selected'));this.classList.add('selected');showChannelFields('whatsapp')">
+          <input type="radio" name="channels" value="whatsapp"${selected === "whatsapp" ? " checked" : ""}>
+          WhatsApp<br><span style="font-weight:400;font-size:12px;color:var(--text-dim)">No extra app needed</span>
+        </label>
+        <label class="provider-card${selected === "both" ? " selected" : ""}" onclick="this.querySelector('input').checked=true;document.querySelectorAll('.provider-card').forEach(c=>c.classList.remove('selected'));this.classList.add('selected');showChannelFields('both')">
+          <input type="radio" name="channels" value="both"${selected === "both" ? " checked" : ""}>
+          Both<br><span style="font-weight:400;font-size:12px;color:var(--text-dim)">Telegram + WhatsApp</span>
+        </label>
+      </div>
+
+      <div id="fields-telegram" style="display:${selected === "telegram" || selected === "both" ? "block" : "none"}">
+        ${telegramFields}
+      </div>
+      <div id="fields-whatsapp" style="display:${selected === "whatsapp" || selected === "both" ? "block" : "none"}">
+        ${whatsappFields}
+      </div>
+
       <div class="btn-row">
         <a href="/setup/provider" class="btn btn-outline">Back</a>
         <button type="submit" class="btn btn-primary">Verify &amp; Continue</button>
       </div>
     </form>
+    <script>
+    function showChannelFields(choice) {
+      document.getElementById('fields-telegram').style.display = (choice === 'telegram' || choice === 'both') ? 'block' : 'none';
+      document.getElementById('fields-whatsapp').style.display = (choice === 'whatsapp' || choice === 'both') ? 'block' : 'none';
+    }
+    </script>
   `, cspNonce);
 }
 
@@ -136,15 +187,8 @@ function stepPassword(error?: string, cspNonce?: string): string {
         <input type="password" id="confirmPassword" name="confirmPassword" class="form-input"
           placeholder="Type it again" required autocomplete="new-password">
       </div>
-      <div class="form-group">
-        <label class="form-label" for="whatsappJid">WhatsApp Number (optional)</label>
-        <input type="text" id="whatsappJid" name="whatsappJid" class="form-input"
-          placeholder="14155551234@s.whatsapp.net"
-          value="${escapeHtml(state.whatsappJid ?? "")}">
-        <p class="form-hint">Your phone number in WhatsApp JID format. Leave blank to skip WhatsApp.</p>
-      </div>
       <div class="btn-row">
-        <a href="/setup/telegram" class="btn btn-outline">Back</a>
+        <a href="/setup/channels" class="btn btn-outline">Back</a>
         <button type="submit" class="btn btn-primary">Continue</button>
       </div>
     </form>
@@ -152,21 +196,13 @@ function stepPassword(error?: string, cspNonce?: string): string {
 }
 
 function stepReview(cspNonce?: string): string {
-  const providerLabel = { anthropic: "Anthropic (Claude)", openai: "OpenAI (GPT)", google: "Google (Gemini)" };
+  const providerLabel: Record<string, string> = { anthropic: "Anthropic (Claude)", openai: "OpenAI (GPT)", google: "Google (Gemini)" };
   const maskedKey = state.apiKey ? `${state.apiKey.slice(0, 8)}...${state.apiKey.slice(-4)}` : "not set";
+  const channelLabel: Record<string, string> = { telegram: "Telegram", whatsapp: "WhatsApp", both: "Telegram + WhatsApp" };
 
-  return setupLayout("Review", 5, TOTAL_STEPS, `
-    <h1>Ready to launch</h1>
-    <p class="dim">Review your settings. You can change anything later in the <code>.env</code> file.</p>
-    <div style="margin-bottom: 24px;">
-      <div class="review-row">
-        <span class="review-label">LLM Provider</span>
-        <span class="review-value">${escapeHtml(providerLabel[state.provider as keyof typeof providerLabel] ?? state.provider ?? "")}</span>
-      </div>
-      <div class="review-row">
-        <span class="review-label">API Key</span>
-        <span class="review-value mono">${escapeHtml(maskedKey)}</span>
-      </div>
+  let channelDetails = "";
+  if (state.channels === "telegram" || state.channels === "both") {
+    channelDetails += `
       <div class="review-row">
         <span class="review-label">Telegram Bot</span>
         <span class="review-value">@${escapeHtml(state.botUsername ?? "unknown")}</span>
@@ -174,15 +210,37 @@ function stepReview(cspNonce?: string): string {
       <div class="review-row">
         <span class="review-label">Owner Chat ID</span>
         <span class="review-value mono">${escapeHtml(state.ownerChatId ?? "")}</span>
+      </div>`;
+  }
+  if (state.channels === "whatsapp" || state.channels === "both") {
+    channelDetails += `
+      <div class="review-row">
+        <span class="review-label">WhatsApp JID</span>
+        <span class="review-value mono">${escapeHtml(state.whatsappJid ?? "")}</span>
+      </div>`;
+  }
+
+  return setupLayout("Review", 5, TOTAL_STEPS, `
+    <h1>Ready to launch</h1>
+    <p class="dim">Review your settings. You can change anything later in the <code>.env</code> file.</p>
+    <div style="margin-bottom: 24px;">
+      <div class="review-row">
+        <span class="review-label">LLM Provider</span>
+        <span class="review-value">${escapeHtml(providerLabel[state.provider ?? ""] ?? state.provider ?? "")}</span>
       </div>
+      <div class="review-row">
+        <span class="review-label">API Key</span>
+        <span class="review-value mono">${escapeHtml(maskedKey)}</span>
+      </div>
+      <div class="review-row">
+        <span class="review-label">Channel</span>
+        <span class="review-value">${escapeHtml(channelLabel[state.channels ?? ""] ?? "")}</span>
+      </div>
+      ${channelDetails}
       <div class="review-row">
         <span class="review-label">Dashboard Password</span>
         <span class="review-value">${"*".repeat(state.dashboardPassword?.length ?? 0)}</span>
       </div>
-      ${state.whatsappJid ? `<div class="review-row">
-        <span class="review-label">WhatsApp</span>
-        <span class="review-value mono">${escapeHtml(state.whatsappJid)}</span>
-      </div>` : ""}
     </div>
     <form method="POST" action="/setup/finish">
       <div class="btn-row">
@@ -221,17 +279,19 @@ function buildEnvContent(): string {
 
   lines.push(`MAIN_MODEL_PROVIDER=${state.provider}`);
   lines.push(``);
-  lines.push(`OWNER_CHAT_ID=${state.ownerChatId}`);
-  lines.push(`MAIN_BOT_TOKEN=${state.botToken}`);
-  lines.push(``);
-  lines.push(`DASHBOARD_PORT=3000`);
-  lines.push(`DASHBOARD_PASSWORD=${state.dashboardPassword}`);
 
-  if (state.whatsappJid) {
-    lines.push(``);
+  if (state.channels === "telegram" || state.channels === "both") {
+    lines.push(`OWNER_CHAT_ID=${state.ownerChatId}`);
+    lines.push(`MAIN_BOT_TOKEN=${state.botToken}`);
+  }
+
+  if (state.channels === "whatsapp" || state.channels === "both") {
     lines.push(`WHATSAPP_OWNER_JID=${state.whatsappJid}`);
   }
 
+  lines.push(``);
+  lines.push(`DASHBOARD_PORT=3000`);
+  lines.push(`DASHBOARD_PASSWORD=${state.dashboardPassword}`);
   lines.push(``);
   return lines.join("\n");
 }
@@ -260,7 +320,7 @@ export function startSetupWizard(port: number): void {
   app.get("/", (c) => c.redirect("/setup"));
   app.get("/setup", (c) => c.html(stepWelcome((c as any).get?.("cspNonce"))));
   app.get("/setup/provider", (c) => c.html(stepProvider(undefined, (c as any).get?.("cspNonce"))));
-  app.get("/setup/telegram", (c) => c.html(stepTelegram(undefined, (c as any).get?.("cspNonce"))));
+  app.get("/setup/channels", (c) => c.html(stepChannels(undefined, (c as any).get?.("cspNonce"))));
   app.get("/setup/password", (c) => c.html(stepPassword(undefined, (c as any).get?.("cspNonce"))));
   app.get("/setup/review", (c) => c.html(stepReview((c as any).get?.("cspNonce"))));
 
@@ -277,24 +337,51 @@ export function startSetupWizard(port: number): void {
 
     state.provider = provider;
     state.apiKey = apiKey;
-    return c.redirect("/setup/telegram");
+    return c.redirect("/setup/channels");
   });
 
-  app.post("/setup/telegram", async (c) => {
+  app.post("/setup/channels", async (c) => {
     const body = await c.req.parseBody();
-    const botToken = String(body.botToken ?? "").trim();
-    const ownerChatId = String(body.ownerChatId ?? "").trim();
+    const channels = String(body.channels ?? "telegram") as ChannelChoice;
     const nonce = (c as any).get?.("cspNonce");
 
-    const chatResult = validateOwnerChatId(ownerChatId);
-    if (!chatResult.valid) return c.html(stepTelegram(chatResult.message, nonce), 400);
+    const needsTelegram = channels === "telegram" || channels === "both";
+    const needsWhatsApp = channels === "whatsapp" || channels === "both";
 
-    const tokenResult = await validateTelegramToken(botToken);
-    if (!tokenResult.valid) return c.html(stepTelegram(tokenResult.message, nonce), 400);
+    if (needsTelegram) {
+      const botToken = String(body.botToken ?? "").trim();
+      const ownerChatId = String(body.ownerChatId ?? "").trim();
 
-    state.botToken = botToken;
-    state.ownerChatId = ownerChatId;
-    state.botUsername = tokenResult.detail ?? "unknown";
+      if (!botToken) return c.html(stepChannels("Telegram bot token is required", nonce), 400);
+      if (!ownerChatId) return c.html(stepChannels("Telegram user ID is required", nonce), 400);
+
+      const chatResult = validateOwnerChatId(ownerChatId);
+      if (!chatResult.valid) return c.html(stepChannels(chatResult.message, nonce), 400);
+
+      const tokenResult = await validateTelegramToken(botToken);
+      if (!tokenResult.valid) return c.html(stepChannels(tokenResult.message, nonce), 400);
+
+      state.botToken = botToken;
+      state.ownerChatId = ownerChatId;
+      state.botUsername = tokenResult.detail ?? "unknown";
+    } else {
+      state.botToken = undefined;
+      state.ownerChatId = undefined;
+      state.botUsername = undefined;
+    }
+
+    if (needsWhatsApp) {
+      const whatsappJid = String(body.whatsappJid ?? "").trim();
+      if (!whatsappJid) return c.html(stepChannels("WhatsApp JID is required", nonce), 400);
+      if (!whatsappJid.includes("@")) {
+        return c.html(stepChannels("WhatsApp JID must be in format: number@s.whatsapp.net", nonce), 400);
+      }
+      state.whatsappJid = whatsappJid;
+    } else {
+      state.whatsappJid = undefined;
+    }
+
+    state.channels = channels;
     return c.redirect("/setup/password");
   });
 
@@ -302,7 +389,6 @@ export function startSetupWizard(port: number): void {
     const body = await c.req.parseBody();
     const password = String(body.password ?? "");
     const confirmPassword = String(body.confirmPassword ?? "");
-    const whatsappJid = String(body.whatsappJid ?? "").trim();
     const nonce = (c as any).get?.("cspNonce");
 
     if (password.length < 8)
@@ -311,7 +397,6 @@ export function startSetupWizard(port: number): void {
       return c.html(stepPassword("Passwords do not match", nonce), 400);
 
     state.dashboardPassword = password;
-    state.whatsappJid = whatsappJid || undefined;
     return c.redirect("/setup/review");
   });
 
@@ -351,7 +436,10 @@ export function isConfigured(): boolean {
   if (!existsSync(envPath)) return false;
   try {
     const content = readFileSync(envPath, "utf-8");
-    return content.includes("MASTER_KEY=") && content.includes("MAIN_BOT_TOKEN=");
+    if (!content.includes("MASTER_KEY=")) return false;
+    const hasTelegram = content.includes("MAIN_BOT_TOKEN=");
+    const hasWhatsApp = content.includes("WHATSAPP_OWNER_JID=");
+    return hasTelegram || hasWhatsApp;
   } catch {
     return false;
   }

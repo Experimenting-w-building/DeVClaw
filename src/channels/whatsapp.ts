@@ -13,6 +13,7 @@ import { loadConfig } from "../config.js";
 import { getRuntime, getAllRuntimes } from "../agent/registry.js";
 import { runAgent, type AgentRuntime } from "../agent/runtime.js";
 import { logAudit } from "../db/index.js";
+import { registerChannel } from "./router.js";
 import { createLogger } from "../util/logger.js";
 
 const log = createLogger("whatsapp");
@@ -147,6 +148,13 @@ export async function startWhatsApp(): Promise<void> {
       if (connection === "open") {
         log.info("WhatsApp connected successfully");
         logAudit(mainRuntime.db, "main", "whatsapp_connected", "WhatsApp session active");
+
+        registerChannel({
+          type: "whatsapp",
+          sendMessage: async (_recipientId, text) => {
+            await sendWhatsAppMessage(config.whatsappOwnerJid!, text);
+          },
+        });
       }
     });
 

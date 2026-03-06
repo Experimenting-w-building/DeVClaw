@@ -48,7 +48,7 @@ export const AgentDefinitionSchema = z.object({
   displayName: z.string(),
   personality: z.string(),
   model: ModelConfigSchema,
-  telegramBotToken: z.string().describe("Env var reference like 'env:MAIN_BOT_TOKEN' or raw token"),
+  telegramBotToken: z.string().optional().describe("Env var reference like 'env:MAIN_BOT_TOKEN' or raw token. Optional when using WhatsApp-only."),
   secrets: z.array(z.string()).default([]),
   capabilities: z.array(AgentCapability).default(["shell", "filesystem"]),
 });

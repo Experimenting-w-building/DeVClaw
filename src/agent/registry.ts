@@ -23,7 +23,7 @@ function setupAgentDirs(agentsDir: string, parsed: AgentDefinition): void {
   }
 
   const configPath = join(agentDir, "config.json");
-  const safeConfig = { ...parsed, telegramBotToken: "(stored encrypted in DB)" };
+  const safeConfig = { ...parsed, telegramBotToken: parsed.telegramBotToken ? "(stored encrypted in DB)" : undefined };
   writeFileSync(configPath, JSON.stringify(safeConfig, null, 2));
 }
 
@@ -49,9 +49,9 @@ export function registerAgent(
 }
 
 /**
- * Register a new agent at runtime with a raw bot token.
- * Encrypts the token, stores it in DB, builds tools, and returns the runtime.
- * Call startBot() separately after this to start the Telegram bot.
+ * Register a new agent at runtime with an optional bot token.
+ * If a bot token is provided, encrypts it and stores in DB.
+ * Call startBot() separately after this to start the Telegram bot (if applicable).
  */
 export function registerAgentDynamic(
   db: Database.Database,
@@ -63,11 +63,13 @@ export function registerAgentDynamic(
     modelProvider: string;
     modelName: string;
     capabilities: string[];
-    rawBotToken: string;
+    rawBotToken?: string;
   }
 ): AgentRuntime {
   const config = loadConfig();
-  const encryptedToken = encrypt(opts.rawBotToken, config.masterKey);
+  const encryptedToken = opts.rawBotToken
+    ? encrypt(opts.rawBotToken, config.masterKey)
+    : undefined;
 
   const fullPersonality = subAgentPersonality(opts.name, opts.personality);
 
@@ -79,7 +81,7 @@ export function registerAgentDynamic(
       provider: opts.modelProvider as AgentDefinition["model"]["provider"],
       model: opts.modelName,
     },
-    telegramBotToken: `db:${opts.name}`,
+    telegramBotToken: opts.rawBotToken ? `db:${opts.name}` : undefined,
     secrets: [],
     capabilities: opts.capabilities as AgentDefinition["capabilities"],
   };

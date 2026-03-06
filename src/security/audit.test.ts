@@ -63,6 +63,28 @@ describe("security audit", () => {
     expect(envCheck?.severity).toBe("fail");
   });
 
+  it("flags missing messaging channels", async () => {
+    setMinimalEnv();
+    delete process.env.OWNER_CHAT_ID;
+    delete process.env.MAIN_BOT_TOKEN;
+    delete process.env.WHATSAPP_OWNER_JID;
+    const report = await runAudit();
+    const channelCheck = report.checks.find((c) => c.name === "CHANNELS");
+    expect(channelCheck?.severity).toBe("fail");
+  });
+
+  it("passes with WhatsApp-only config", async () => {
+    setMinimalEnv();
+    delete process.env.OWNER_CHAT_ID;
+    delete process.env.MAIN_BOT_TOKEN;
+    process.env.WHATSAPP_OWNER_JID = "14155551234@s.whatsapp.net";
+    const report = await runAudit();
+    const channelCheck = report.checks.find((c) => c.name === "CHANNELS");
+    expect(channelCheck).toBeUndefined();
+    const waCheck = report.checks.find((c) => c.name === "WHATSAPP_OWNER_JID");
+    expect(waCheck?.severity).toBe("pass");
+  });
+
   it("returns correct summary counts", async () => {
     setMinimalEnv();
     const report = await runAudit();

@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import { loadConfig } from "../config.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
+import { agentsRoutes } from "./routes/agents.js";
 import { skillsRoutes } from "./routes/skills.js";
 import { tasksRoutes } from "./routes/tasks.js";
 import { logsRoutes } from "./routes/logs.js";
@@ -227,6 +228,7 @@ export function startDashboard(db: Database.Database, port: number): void {
   // --- App routes ---
 
   app.route("/", dashboardRoutes(db));
+  app.route("/", agentsRoutes(db));
   app.route("/", skillsRoutes(db));
   app.route("/", tasksRoutes(db));
   app.route("/", logsRoutes(db));

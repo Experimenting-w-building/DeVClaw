@@ -162,6 +162,7 @@ export function layout(
     <div class="container">
       <a href="/" class="logo">DeVClaw</a>
       <a href="/">Dashboard</a>
+      <a href="/agents">Agents</a>
       <a href="/skills">Skills</a>
       <a href="/tasks">Tasks</a>
       <a href="/logs">Logs</a>

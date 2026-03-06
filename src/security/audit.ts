@@ -75,20 +75,43 @@ function checkProviderKeys(): AuditCheck {
   return check("LLM_API_KEYS", "pass", `${has} LLM provider key(s) configured`);
 }
 
-function checkOwnerChatId(): AuditCheck {
-  const id = process.env.OWNER_CHAT_ID;
-  if (!id) return check("OWNER_CHAT_ID", "fail", "OWNER_CHAT_ID is not set (anyone could message bots)");
-  if (!/^\d+$/.test(id))
-    return check("OWNER_CHAT_ID", "warn", "OWNER_CHAT_ID does not look like a numeric Telegram ID");
-  return check("OWNER_CHAT_ID", "pass", "OWNER_CHAT_ID is set");
-}
+function checkChannels(): AuditCheck[] {
+  const results: AuditCheck[] = [];
+  const hasTelegram = !!process.env.MAIN_BOT_TOKEN && !!process.env.OWNER_CHAT_ID;
+  const hasWhatsApp = !!process.env.WHATSAPP_OWNER_JID;
 
-function checkBotToken(): AuditCheck {
-  const token = process.env.MAIN_BOT_TOKEN;
-  if (!token) return check("MAIN_BOT_TOKEN", "fail", "MAIN_BOT_TOKEN is not set");
-  if (!/^\d+:[A-Za-z0-9_-]+$/.test(token))
-    return check("MAIN_BOT_TOKEN", "warn", "MAIN_BOT_TOKEN format looks unusual");
-  return check("MAIN_BOT_TOKEN", "pass", "MAIN_BOT_TOKEN is set");
+  if (!hasTelegram && !hasWhatsApp) {
+    results.push(check("CHANNELS", "fail", "No messaging channel configured (set Telegram or WhatsApp in .env)"));
+    return results;
+  }
+
+  if (hasTelegram) {
+    const id = process.env.OWNER_CHAT_ID!;
+    if (!/^\d+$/.test(id))
+      results.push(check("OWNER_CHAT_ID", "warn", "OWNER_CHAT_ID does not look like a numeric Telegram ID"));
+    else
+      results.push(check("OWNER_CHAT_ID", "pass", "OWNER_CHAT_ID is set"));
+
+    const token = process.env.MAIN_BOT_TOKEN!;
+    if (!/^\d+:[A-Za-z0-9_-]+$/.test(token))
+      results.push(check("MAIN_BOT_TOKEN", "warn", "MAIN_BOT_TOKEN format looks unusual"));
+    else
+      results.push(check("MAIN_BOT_TOKEN", "pass", "MAIN_BOT_TOKEN is set"));
+  } else {
+    results.push(check("TELEGRAM", "info", "Telegram not configured (optional)"));
+  }
+
+  if (hasWhatsApp) {
+    const jid = process.env.WHATSAPP_OWNER_JID!;
+    if (!jid.includes("@"))
+      results.push(check("WHATSAPP_OWNER_JID", "warn", "WHATSAPP_OWNER_JID should be in format: number@s.whatsapp.net"));
+    else
+      results.push(check("WHATSAPP_OWNER_JID", "pass", "WHATSAPP_OWNER_JID is set"));
+  } else {
+    results.push(check("WHATSAPP", "info", "WhatsApp not configured (optional)"));
+  }
+
+  return results;
 }
 
 function checkEnvFilePermissions(): AuditCheck {
@@ -218,8 +241,7 @@ export async function runAudit(): Promise<AuditReport> {
   checks.push(checkDashboardPassword());
   checks.push(checkSkipAuth());
   checks.push(checkProviderKeys());
-  checks.push(checkOwnerChatId());
-  checks.push(checkBotToken());
+  checks.push(...checkChannels());
   checks.push(checkEnvFilePermissions());
   checks.push(checkAllowedOrigins());
   checks.push(checkDashboardPort());

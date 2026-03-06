@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { getRuntime } from "../agent/registry.js";
 import { runAgent } from "../agent/runtime.js";
 import { logAudit } from "../db/index.js";
-import { sendMessage } from "../channels/telegram.js";
+import { sendToOwner } from "../channels/router.js";
 import { loadConfig } from "../config.js";
 import { createLogger } from "../util/logger.js";
 
@@ -24,7 +24,7 @@ export function createSchedulerTool(db: Database.Database, agentName: string) {
   return tool({
     description:
       "Schedule a recurring task. The task will run the given instruction on a cron schedule " +
-      "and send results via Telegram. Use standard cron expressions (minute hour day month weekday). " +
+      "and send results to the owner. Use standard cron expressions (minute hour day month weekday). " +
       "Examples: '0 9 * * 1-5' (weekdays at 9am), '*/30 * * * *' (every 30 min), '0 8 * * 1' (Mondays at 8am).",
     inputSchema: z.object({
       description: z.string().describe("Human-readable description of what this task does"),
@@ -190,10 +190,11 @@ function scheduleTask(
       ).run(taskId);
 
       const config = loadConfig();
+      const ownerId = config.ownerChatId ?? config.whatsappOwnerJid ?? "";
       try {
-        await sendMessage(agentName, config.ownerChatId, `📋 Scheduled task result:\n\n${result.response}`);
+        await sendToOwner(ownerId, `Scheduled task result:\n\n${result.response}`);
       } catch {
-        log.warn(`Task ${taskId} completed but could not send Telegram message`);
+        log.warn(`Task ${taskId} completed but could not deliver message`);
       }
 
       logAudit(db, agentName, "task_completed", `Task: ${taskId}, Tokens: ${result.tokensUsed}`);

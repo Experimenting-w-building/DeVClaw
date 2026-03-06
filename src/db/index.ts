@@ -69,7 +69,7 @@ export function upsertAgent(
     def.personality,
     def.model.provider,
     def.model.model,
-    def.telegramBotToken,
+    def.telegramBotToken ?? "",
     encryptedBotToken ?? null,
     JSON.stringify(def.secrets),
     JSON.stringify(def.capabilities),
@@ -77,6 +77,7 @@ export function upsertAgent(
 }
 
 function rowToAgentDef(row: Record<string, unknown>): AgentDefinition {
+  const token = row.telegram_bot_token as string;
   return {
     name: row.name as string,
     displayName: row.display_name as string,
@@ -85,7 +86,7 @@ function rowToAgentDef(row: Record<string, unknown>): AgentDefinition {
       provider: row.model_provider as AgentDefinition["model"]["provider"],
       model: row.model_name as string,
     },
-    telegramBotToken: row.telegram_bot_token as string,
+    telegramBotToken: token || undefined,
     secrets: JSON.parse(row.secrets as string),
     capabilities: JSON.parse(row.capabilities as string),
   };

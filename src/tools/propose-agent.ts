@@ -3,12 +3,13 @@ import { z } from "zod";
 import type Database from "better-sqlite3";
 import { createPendingAgent, getPendingAgent, getAgent } from "../db/index.js";
 import { logAudit } from "../db/index.js";
+import { hasChannel } from "../channels/router.js";
 
 export function createProposeAgentTool(db: Database.Database, ownerAgentName: string) {
   return tool({
     description:
       "Propose creating a new specialist sub-agent. The agent won't be created immediately -- " +
-      "the owner must approve it via Telegram by replying with /approve <name> <bot_token>. " +
+      "the owner must approve it via messaging or the web dashboard. " +
       "Use this when a task would benefit from a dedicated specialist with its own personality, skills, and memory.",
     inputSchema: z.object({
       name: z
@@ -44,9 +45,12 @@ export function createProposeAgentTool(db: Database.Database, ownerAgentName: st
 
       const existingPending = getPendingAgent(db, name);
       if (existingPending) {
+        const hint = hasChannel("telegram")
+          ? `Reply with: /approve ${name} <bot_token>`
+          : `Approve via dashboard: /dashboard > Agents`;
         return {
           message: `A proposal for "${name}" already exists and is awaiting approval.`,
-          instructions: `Reply with: /approve ${name} <bot_token>`,
+          instructions: hint,
         };
       }
 
@@ -62,15 +66,27 @@ export function createProposeAgentTool(db: Database.Database, ownerAgentName: st
 
       logAudit(db, ownerAgentName, "agent_proposed", `Name: ${name}, Display: ${displayName}`);
 
-      return {
-        message: `Agent "${displayName}" proposed successfully. Awaiting owner approval.`,
-        name,
-        instructions: [
+      const instructions: string[] = [];
+      if (hasChannel("telegram")) {
+        instructions.push(
           `1. Create a Telegram bot via @BotFather`,
           `2. Copy the bot token`,
           `3. Reply here with: /approve ${name} <bot_token>`,
           `Or to reject: /reject ${name}`,
-        ],
+        );
+      } else {
+        instructions.push(
+          `1. Go to the web dashboard`,
+          `2. Navigate to the Agents section`,
+          `3. Approve "${name}" from the pending list`,
+          `(Optional: provide a Telegram bot token to give the agent its own Telegram bot)`,
+        );
+      }
+
+      return {
+        message: `Agent "${displayName}" proposed successfully. Awaiting owner approval.`,
+        name,
+        instructions,
         personality: personality.slice(0, 200) + "...",
         capabilities,
       };

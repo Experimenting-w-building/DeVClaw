@@ -34,12 +34,15 @@ async function main() {
   log.info("========================");
 
   // Register main agent (tools added after registration so delegation can discover peers)
+  const hasTelegram = !!(config.mainBotToken && config.ownerChatId);
+  const hasWhatsApp = !!config.whatsappOwnerJid;
+
   const mainDef = {
     name: "main",
     displayName: "Main Agent",
     personality: MAIN_AGENT_PERSONALITY,
     model: { provider: config.mainModelProvider, model: config.mainModelName },
-    telegramBotToken: "env:MAIN_BOT_TOKEN",
+    telegramBotToken: hasTelegram ? "env:MAIN_BOT_TOKEN" : undefined,
     secrets: [] as string[],
     capabilities: [
       "shell" as const,
@@ -77,18 +80,24 @@ async function main() {
   // Start web dashboard
   startDashboard(db, config.dashboardPort);
 
-  // Start Telegram bots for all registered agents
-  const useTelegram = process.argv.includes("--telegram");
-  if (useTelegram) {
+  // Start configured messaging channels (auto-detected from .env)
+  // CLI flags --telegram / --whatsapp can override to selectively enable
+  const forceChannels = process.argv.includes("--telegram") || process.argv.includes("--whatsapp");
+  const useTelegram = forceChannels ? process.argv.includes("--telegram") : hasTelegram;
+  const useWhatsApp = forceChannels ? process.argv.includes("--whatsapp") : hasWhatsApp;
+
+  if (useTelegram && hasTelegram) {
     log.info("Starting Telegram bots...");
     startAllBots();
   }
 
-  // Start WhatsApp connection (if configured)
-  const useWhatsApp = process.argv.includes("--whatsapp");
-  if (useWhatsApp) {
+  if (useWhatsApp && hasWhatsApp) {
     log.info("Starting WhatsApp connection...");
     await startWhatsApp();
+  }
+
+  if (!useTelegram && !useWhatsApp) {
+    log.warn("No messaging channels started. Configure Telegram or WhatsApp in .env");
   }
 
   // Warm model in background so startup stays responsive.
@@ -97,8 +106,9 @@ async function main() {
     log.warn("Embedding warmup failed", { error: String(err) });
   });
 
-  // Interactive REPL for local testing
-  if (!useTelegram || process.argv.includes("--repl")) {
+  // Interactive REPL for local testing (auto-starts when no messaging channels active)
+  const hasMessaging = (useTelegram && hasTelegram) || (useWhatsApp && hasWhatsApp);
+  if (!hasMessaging || process.argv.includes("--repl")) {
     log.info("Type a message to chat (Ctrl+C to quit):");
 
     const rl = readline.createInterface({

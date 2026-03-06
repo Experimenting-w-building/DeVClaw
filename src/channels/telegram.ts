@@ -16,6 +16,7 @@ import {
   listAgents,
 } from "../db/index.js";
 import { decrypt } from "../security/crypto.js";
+import { registerChannel } from "./router.js";
 import { createLogger } from "../util/logger.js";
 
 const log = createLogger("telegram");
@@ -69,23 +70,25 @@ function registerCommands(bot: Bot, runtime: AgentRuntime): void {
   bot.command("approve", async (ctx) => {
     if (!isOwner(ctx)) return;
     const args = ctx.match?.split(/\s+/) ?? [];
-    if (args.length < 2) {
-      await ctx.reply("Usage: /approve <agent_name> <bot_token>");
+    if (args.length < 1 || !args[0]) {
+      await ctx.reply("Usage: /approve <agent_name> [bot_token]\nBot token is optional -- omit for delegation-only agents.");
       return;
     }
 
-    const [name, rawToken] = [args[0], args.slice(1).join("")];
+    const name = args[0];
+    const rawToken = args.length >= 2 ? args.slice(1).join("") : undefined;
     const pending = getPendingAgent(db, name);
     if (!pending) {
       await ctx.reply(`No pending proposal found for "${name}".`);
       return;
     }
 
-    // Delete the message containing the bot token for security
-    try {
-      await ctx.deleteMessage();
-    } catch {
-      // may not have delete permissions
+    if (rawToken) {
+      try {
+        await ctx.deleteMessage();
+      } catch {
+        // may not have delete permissions
+      }
     }
 
     try {
@@ -101,14 +104,21 @@ function registerCommands(bot: Bot, runtime: AgentRuntime): void {
 
       deletePendingAgent(db, name);
 
-      const newBot = startBot(name);
-      const botUsername = newBot ? "(starting...)" : "(bot token may be invalid)";
+      let statusMsg: string;
+      if (rawToken) {
+        const newBot = startBot(name);
+        statusMsg = newBot
+          ? "Telegram bot starting..."
+          : "Bot token may be invalid -- agent available via delegation only.";
+      } else {
+        statusMsg = "No bot token provided -- agent available via delegation only.";
+      }
 
       logAudit(db, "main", "agent_approved", `Agent: ${name}`);
 
       await ctx.reply(
-        `Agent "${pending.displayName}" is live! ${botUsername}\n\n` +
-        `You can DM it directly on Telegram, or ask me to delegate tasks to it.\n` +
+        `Agent "${pending.displayName}" is live! ${statusMsg}\n\n` +
+        `Ask me to delegate tasks to it.\n` +
         `Capabilities: ${pending.capabilities.join(", ")}`
       );
     } catch (err) {
@@ -259,6 +269,11 @@ export function startBot(agentName: string): Bot | null {
     return existing.bot;
   }
 
+  if (!runtime.definition.telegramBotToken) {
+    log.info(`No Telegram token for ${agentName}, skipping bot start`);
+    return null;
+  }
+
   const token = resolveToken(agentName, runtime.definition.telegramBotToken);
   if (!token) {
     log.error(`Cannot resolve bot token for ${agentName}`);
@@ -299,10 +314,25 @@ export function stopBot(agentName: string): void {
 }
 
 export function startAllBots(): void {
+  const config = loadConfig();
+  if (!config.mainBotToken || !config.ownerChatId) {
+    log.info("Telegram not configured, skipping bot startup");
+    return;
+  }
+
   const runtimes = getAllRuntimes();
   for (const runtime of runtimes) {
-    startBot(runtime.definition.name);
+    if (runtime.definition.telegramBotToken) {
+      startBot(runtime.definition.name);
+    }
   }
+
+  registerChannel({
+    type: "telegram",
+    sendMessage: async (recipientId, text) => {
+      await sendMessage("main", recipientId, text);
+    },
+  });
 }
 
 export function stopAllBots(): void {

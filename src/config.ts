@@ -9,7 +9,6 @@ loadDotenv();
 const AppConfigSchema = z.object({
   nodeEnv: z.enum(["development", "test", "production"]).default("development"),
   masterKey: z.string().min(1, "MASTER_KEY is required"),
-  ownerChatId: z.string().min(1, "OWNER_CHAT_ID is required"),
   dashboardPort: z.coerce.number().default(3000),
   dashboardPassword: z.string().min(1, "DASHBOARD_PASSWORD is required"),
   dashboardAllowedOrigins: z.string().optional(),
@@ -23,8 +22,11 @@ const AppConfigSchema = z.object({
   llmTimeoutMs: z.coerce.number().default(45_000),
   llmMaxRetries: z.coerce.number().default(1),
 
-  mainBotToken: z.string().min(1, "MAIN_BOT_TOKEN is required"),
+  // Telegram channel (optional -- at least one channel must be configured)
+  ownerChatId: z.string().optional(),
+  mainBotToken: z.string().optional(),
 
+  // WhatsApp channel (optional -- at least one channel must be configured)
   whatsappOwnerJid: z.string().optional(),
 
   mcpServers: z.string().optional(),
@@ -59,6 +61,32 @@ const AppConfigSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["mainModelProvider"],
       message: "MAIN_MODEL_PROVIDER=google requires GOOGLE_API_KEY",
+    });
+  }
+
+  const hasTelegram = !!val.mainBotToken && !!val.ownerChatId;
+  const hasWhatsApp = !!val.whatsappOwnerJid;
+
+  if (!hasTelegram && !hasWhatsApp) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["mainBotToken"],
+      message: "At least one messaging channel must be configured: set MAIN_BOT_TOKEN + OWNER_CHAT_ID for Telegram, or WHATSAPP_OWNER_JID for WhatsApp",
+    });
+  }
+
+  if (val.mainBotToken && !val.ownerChatId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["ownerChatId"],
+      message: "OWNER_CHAT_ID is required when MAIN_BOT_TOKEN is set (Telegram channel)",
+    });
+  }
+  if (val.ownerChatId && !val.mainBotToken) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["mainBotToken"],
+      message: "MAIN_BOT_TOKEN is required when OWNER_CHAT_ID is set (Telegram channel)",
     });
   }
 });

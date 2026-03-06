@@ -29,7 +29,7 @@ No cloud dependencies. No vendor lock-in. Your data stays on your machine.
 - **Long-term memory** -- Tiered memory system with local vector embeddings (no API calls), semantic retrieval, automatic fact extraction, and conversation summarization. ~3K tokens per call instead of 10K+
 - **Self-building tools** -- Agents write their own JavaScript skills, which run in sandboxed Docker containers and persist across sessions
 - **Container isolation** -- Every shell command, skill execution, and browser session runs inside Docker. Nothing touches the host
-- **Telegram + WhatsApp** -- Talk to your agents on Telegram or WhatsApp. Create new sub-agents via conversation. No web UI required (but there is one)
+- **Telegram or WhatsApp (or both)** -- Choose your messaging channel during setup. Use either one independently or both together. Sub-agents work via delegation on any channel, with optional dedicated Telegram bots
 - **MCP compatible** -- Plug in any [Model Context Protocol](https://modelcontextprotocol.io) server and its tools become available to all agents
 - **Multi-provider LLM** -- Anthropic, OpenAI, and Google supported natively via their official SDKs. No abstraction layer in between
 - **WhatsApp support** -- Connect via WhatsApp alongside Telegram. QR-code pairing, owner-only access, automatic reconnection
@@ -151,16 +151,17 @@ bash scripts/install-service.sh   # installs + starts the background service
 ### Development Commands
 
 ```bash
-npm run dev          # Dev mode with hot reload
-npm start            # Local REPL only (no Telegram)
-npm start -- --telegram --repl   # Telegram + local REPL
-npm start -- --whatsapp          # WhatsApp channel
-npm start -- --telegram --whatsapp  # Both channels
+npm run dev          # Dev mode with hot reload (auto-starts configured channels)
+npm start            # Starts configured channels + REPL if no channels active
+npm start -- --telegram --repl   # Override: Telegram only + local REPL
+npm start -- --whatsapp          # Override: WhatsApp only
 npm run audit        # Security audit
 npm test             # Run tests
 npm run test:watch   # Tests in watch mode
 npm run typecheck    # TypeScript check
 ```
+
+Channels auto-start based on your `.env` configuration. The `--telegram` and `--whatsapp` flags are optional overrides when you want to selectively enable only one channel.
 
 ## Configuration
 
@@ -173,8 +174,8 @@ All configuration lives in a single `.env` file:
 | `ANTHROPIC_API_KEY` | One of three | Anthropic API key |
 | `OPENAI_API_KEY` | One of three | OpenAI API key |
 | `GOOGLE_API_KEY` | One of three | Google AI API key |
-| `OWNER_CHAT_ID` | Yes | Your Telegram numeric user ID. Message [@userinfobot](https://t.me/userinfobot) to find it |
-| `MAIN_BOT_TOKEN` | Yes | Telegram bot token from [@BotFather](https://t.me/BotFather) |
+| `OWNER_CHAT_ID` | If Telegram | Your Telegram numeric user ID. Message [@userinfobot](https://t.me/userinfobot) to find it |
+| `MAIN_BOT_TOKEN` | If Telegram | Telegram bot token from [@BotFather](https://t.me/BotFather) |
 | `MAIN_MODEL_PROVIDER` | No | Main agent provider: `anthropic`, `openai`, `google` (default: `anthropic`) |
 | `MAIN_MODEL_NAME` | No | Main agent model name (default: `claude-sonnet-4-20250514`) |
 | `LLM_TIMEOUT_MS` | No | Per-provider request timeout in ms (default: `45000`) |
@@ -184,7 +185,7 @@ All configuration lives in a single `.env` file:
 | `DASHBOARD_SKIP_AUTH` | No | Set to `true` to skip login (local dev only -- never use in production) |
 | `DASHBOARD_ALLOWED_ORIGINS` | No | Comma-separated extra trusted origins for dashboard POST checks |
 | `LOG_LEVEL` | No | Log level: `debug`, `info`, `warn`, `error` (default: `info`) |
-| `WHATSAPP_OWNER_JID` | No | Your WhatsApp JID (`<country><number>@s.whatsapp.net`). Required for `--whatsapp` |
+| `WHATSAPP_OWNER_JID` | If WhatsApp | Your WhatsApp JID (`<country><number>@s.whatsapp.net`) |
 | `MCP_SERVERS` | No | JSON array of MCP server configs (see MCP section) |
 | `MCP_TOOL_AGENTS` | No | Comma-separated agent names allowed to use MCP tools (default: `main`) |
 | `MCP_ENV_ALLOWLIST` | No | Comma-separated host env vars passed to MCP processes |
@@ -310,25 +311,27 @@ All embeddings run locally via `@huggingface/transformers` with a 384-dimension 
 
 ## Dynamic Sub-Agents
 
-Create new agents on the fly, entirely through Telegram conversation:
+Create new agents on the fly, through conversation or the web dashboard:
 
 1. Ask your main agent to create a specialist (or it proposes one itself)
 2. The agent stores a proposal in the database
-3. You approve with `/approve <name> <bot_token>` (create a bot with @BotFather first)
+3. Approve via Telegram (`/approve <name> [bot_token]`), WhatsApp, or the **Agents** page in the web dashboard
 4. The new agent starts immediately -- no restart needed
-5. DM the new bot directly, or let the main agent delegate to it
+5. Sub-agents work via delegation. With Telegram, they can optionally get their own bot for direct messaging
 
-**Telegram commands** (main bot only):
+**Telegram commands** (main bot only, when Telegram is configured):
 
 | Command | Description |
 |---|---|
-| `/approve <name> <token>` | Approve a pending agent with its Telegram bot token |
+| `/approve <name> [token]` | Approve a pending agent. Bot token is optional -- omit for delegation-only agents |
 | `/reject <name>` | Reject a pending agent proposal |
 | `/agents` | List all active and pending agents |
 | `/stop <name>` | Stop a sub-agent's Telegram bot |
 | `/restart <name>` | Restart a sub-agent's Telegram bot |
 
-Bot tokens are encrypted with AES-256-GCM before storage and the approval message is deleted from Telegram chat history automatically.
+**Dashboard approval** (works with any channel): Navigate to the **Agents** page in the web dashboard. Pending proposals appear with approve/reject buttons and an optional field for a Telegram bot token.
+
+Bot tokens are encrypted with AES-256-GCM before storage. When approved via Telegram, the approval message is auto-deleted from chat history.
 
 ## Security
 
@@ -424,6 +427,7 @@ devclaw/
 │   │   ├── propose-agent.ts  # Dynamic agent proposals
 │   │   └── mcp-bridge.ts     # MCP server connector
 │   ├── channels/
+│   │   ├── router.ts         # Channel-agnostic message routing
 │   │   ├── telegram.ts       # grammY multi-bot management
 │   │   └── whatsapp.ts       # Baileys WhatsApp Web connection
 │   ├── web/
@@ -498,7 +502,7 @@ How DeVClaw compares to other agent frameworks, ordered by resource footprint:
 | **RAM** | ~1 MB | < 5 MB | < 10 MB | > 100 MB | ~300-400 MB | > 1 GB |
 | **Startup (0.8 GHz)** | < 8 ms | < 10 ms | < 1 s | > 30 s | ~30-60 s | > 500 s |
 | **Binary Size** | 678 KB | 3.4 MB | ~8 MB | N/A (scripts) | ~100 KB (dist) | ~28 MB (dist) |
-| **Tests** | 3,230+ | 1,017 | -- | -- | 60+ | -- |
+| **Tests** | 3,230+ | 1,017 | -- | -- | 62+ | -- |
 | **Source Files** | ~110 | ~120 | -- | -- | ~35 | ~400+ |
 | **Cost** | Any $5 hardware | Any $10 hardware | Linux board $10 | Linux SBC ~$50 | Any $5 VPS / Mac Mini | Mac Mini $599 |
 
