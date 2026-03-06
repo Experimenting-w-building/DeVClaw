@@ -16,12 +16,10 @@ No cloud dependencies. No vendor lock-in. Your data stays on your machine.
 
 | Method | Difficulty | What you need |
 |--------|-----------|---------------|
-| **[Docker Compose](#docker-compose-recommended)** | Easiest | Docker only |
-| **[One-click cloud](#cloud-deploy)** | Easy | Railway or Fly.io account |
+| **[DeVClaw Cloud](#devclaw-cloud-managed-hosting)** | Easiest | Just a browser |
+| **[Docker Compose](#docker-compose-recommended)** | Easy | Docker only |
 | **[Setup script](#setup-script)** | Moderate | Node.js 22+ and Docker |
 | **[Manual](#manual-setup)** | Advanced | Full dev environment |
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/devclaw?referralCode=automated-engineering)
 
 ## Features
 
@@ -107,21 +105,6 @@ Open `http://localhost:3000/setup` in your browser. The setup wizard walks you t
 5. Review and launch
 
 The wizard writes your `.env` file automatically, generates encryption keys, and restarts the agent. No terminal editing required.
-
-### Cloud Deploy
-
-**Railway** -- One click, no server needed. LLM + Telegram + memory + dashboard all work. Sandbox tools (shell, browser) require Docker socket access and are unavailable on Railway.
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/devclaw?referralCode=automated-engineering)
-
-**Fly.io** -- Full functionality including sandbox tools with persistent volumes.
-
-```bash
-fly launch --copy-config
-fly secrets set MASTER_KEY=$(openssl rand -hex 32)
-# Set remaining secrets via: fly secrets set KEY=VALUE
-fly deploy
-```
 
 ### Setup Script
 
@@ -471,8 +454,6 @@ devclaw/
 │   └── setup-tunnel.sh       # Cloudflare Tunnel helper
 ├── Dockerfile                # App container (multi-stage build)
 ├── docker-compose.yml        # Full-stack orchestration (app + sandbox + browser)
-├── railway.json              # Railway deploy config
-├── fly.toml                  # Fly.io deploy config
 ├── .dockerignore             # Docker build exclusions
 ├── .github/workflows/ci.yml  # CI pipeline (typecheck, test, build)
 ├── vitest.config.ts
@@ -574,7 +555,7 @@ sudo usermod -aG docker $USER
 # Log out and back in for the group change to take effect
 ```
 
-On cloud platforms without Docker socket access (like Railway), sandbox tools (shell, browser) are unavailable. Memory, LLM, scheduling, and messaging channels all work without Docker.
+Docker is required for sandbox tools (shell, browser, skills). If Docker is not available, the agent gracefully disables these capabilities while memory, LLM, scheduling, and messaging channels continue to work.
 
 ## License
 
