@@ -97,6 +97,13 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
 
 function getAnthropicClient(): Anthropic {
   const config = loadConfig();
+  if (config.llmProxyUrl) {
+    return new Anthropic({
+      apiKey: config.anthropicApiKey || "managed",
+      baseURL: `${config.llmProxyUrl}/anthropic`,
+      defaultHeaders: { "X-Instance-Token": config.llmProxyToken! },
+    });
+  }
   if (!config.anthropicApiKey) throw new Error("ANTHROPIC_API_KEY not set");
   return new Anthropic({ apiKey: config.anthropicApiKey });
 }
@@ -197,6 +204,13 @@ async function callAnthropic(
 
 function getOpenAIClient(): OpenAI {
   const config = loadConfig();
+  if (config.llmProxyUrl) {
+    return new OpenAI({
+      apiKey: config.openaiApiKey || "managed",
+      baseURL: `${config.llmProxyUrl}/openai/v1`,
+      defaultHeaders: { "X-Instance-Token": config.llmProxyToken! },
+    });
+  }
   if (!config.openaiApiKey) throw new Error("OPENAI_API_KEY not set");
   return new OpenAI({ apiKey: config.openaiApiKey });
 }
@@ -304,6 +318,12 @@ async function callOpenAI(
 
 function getGoogleClient(): GoogleGenAI {
   const config = loadConfig();
+  if (config.llmProxyUrl) {
+    return new GoogleGenAI({
+      apiKey: config.googleApiKey || "managed",
+      httpOptions: { baseUrl: `${config.llmProxyUrl}/google` },
+    });
+  }
   if (!config.googleApiKey) throw new Error("GOOGLE_API_KEY not set");
   return new GoogleGenAI({ apiKey: config.googleApiKey });
 }

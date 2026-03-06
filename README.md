@@ -2,7 +2,7 @@
 
 **A lightweight, self-hosted AI agent framework that builds its own tools, remembers everything, and runs a team.**
 
-By [Automated Engineering](https://github.com/automated-engineering)
+By [Automated Engineering](https://github.com/Experimenting-w-building)
 
 ---
 
@@ -93,8 +93,8 @@ Telegram WhatsApp  Dashboard
 The easiest path. You only need [Docker](https://docs.docker.com/desktop/) installed.
 
 ```bash
-git clone https://github.com/automated-engineering/devclaw.git
-cd devclaw
+git clone https://github.com/Experimenting-w-building/DeVClaw.git
+cd DeVClaw
 docker compose up
 ```
 
@@ -128,8 +128,8 @@ fly deploy
 For local machines (Mac Mini, laptop, VPS) where you want the full experience with background service:
 
 ```bash
-git clone https://github.com/automated-engineering/devclaw.git
-cd devclaw
+git clone https://github.com/Experimenting-w-building/DeVClaw.git
+cd DeVClaw
 bash scripts/setup.sh
 ```
 
@@ -138,8 +138,8 @@ The script checks prerequisites, installs dependencies, walks you through config
 ### Manual Setup
 
 ```bash
-git clone https://github.com/automated-engineering/devclaw.git
-cd devclaw
+git clone https://github.com/Experimenting-w-building/DeVClaw.git
+cd DeVClaw
 npm install
 cp .env.example .env
 # Edit .env with your keys (see Configuration below)
@@ -451,6 +451,9 @@ devclaw/
 │   ├── bus/
 │   │   ├── message-bus.ts    # Inter-agent messaging
 │   │   └── types.ts          # Bus types
+│   ├── managed/
+│   │   ├── reporter.ts       # Health/usage reporting (managed mode)
+│   │   └── bootstrap.ts      # Remote provisioning API (managed mode)
 │   ├── container/
 │   │   └── docker.ts         # Docker API client
 │   └── util/
@@ -509,6 +512,21 @@ How DeVClaw compares to other agent frameworks, ordered by resource footprint:
 DeVClaw uses ~1/3 the RAM of OpenClaw with ~1/13 the source files. The embedding model (~150MB resident) is the main memory cost -- without it, the core agent sits around ~150MB. Startup is dominated by ONNX model loading; on a modern Mac Mini it's closer to ~5s.
 
 The compiled-language frameworks (Zig, Rust, Go) will always win on raw efficiency. DeVClaw trades that for development speed, readability (~30 files you can audit in an afternoon), and access to the npm ecosystem -- MCP SDK, grammY, HuggingFace transformers, and hundreds of other packages that just work.
+
+## DeVClaw Cloud (Managed Hosting)
+
+Don't want to self-host? **DeVClaw Cloud** provisions a dedicated DigitalOcean server for you with managed LLM access, so you can deploy an agent without touching a terminal.
+
+**How it works:** Sign up, pick a plan, and we provision a dedicated server running your own DeVClaw instance. LLM calls are proxied through the control plane for usage metering and cap enforcement. Your data stays on your server -- we never see your conversations.
+
+| Tier | Price | Server | Token Cap | Models |
+|------|-------|--------|-----------|--------|
+| Starter | $15/mo | 1 vCPU, 1 GB | 200K/mo | GPT-4o-mini, Haiku |
+| Pro | $35/mo | 2 vCPU, 2 GB | 1M/mo | Sonnet, GPT-4o + mini for background |
+| Power | $75/mo | 4 vCPU, 8 GB | 5M/mo | Full model access |
+| BYOK | $8/mo | 1 vCPU, 1 GB | Unlimited | Your own API keys |
+
+The control plane is a separate Next.js app: [devclaw-cloud](https://github.com/Experimenting-w-building/devclaw-cloud).
 
 ## Troubleshooting
 

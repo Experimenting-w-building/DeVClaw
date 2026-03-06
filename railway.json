@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "node dist/index.js --telegram",
+    "startCommand": "node dist/index.js",
     "healthcheckPath": "/login",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",

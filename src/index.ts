@@ -11,13 +11,27 @@ import { startDashboard } from "./web/server.js";
 import { warmup as warmupEmbedder } from "./memory/embedder.js";
 import { connectAllMCPServers, disconnectAllMCPServers } from "./tools/mcp-bridge.js";
 import { startSetupWizard, isConfigured } from "./web/setup.js";
+import { startReporter, stopReporter } from "./managed/reporter.js";
+import { createBootstrapApp } from "./managed/bootstrap.js";
+import { serve } from "@hono/node-server";
 import * as readline from "node:readline";
 import { createLogger } from "./util/logger.js";
 
 const log = createLogger("main");
 
 async function main() {
-  // Bootstrap mode: if .env is missing or incomplete, start the setup wizard
+  // Managed bootstrap mode: fresh instance waiting for control plane provisioning
+  const bootstrapToken = process.env.MANAGED_BOOTSTRAP_TOKEN;
+  if (bootstrapToken && !isConfigured()) {
+    const port = Number(process.env.DASHBOARD_PORT ?? 3000);
+    log.info("Managed mode: awaiting bootstrap from control plane");
+    log.info(`Bootstrap endpoint: http://localhost:${port}/bootstrap`);
+    const bootstrapApp = createBootstrapApp(bootstrapToken);
+    serve({ fetch: bootstrapApp.fetch, port });
+    return;
+  }
+
+  // Interactive setup wizard: .env missing or incomplete, no bootstrap token
   if (!isConfigured() || !isConfigValid()) {
     const port = Number(process.env.DASHBOARD_PORT ?? 3000);
     log.info("Configuration incomplete -- starting setup wizard");
@@ -100,6 +114,16 @@ async function main() {
     log.warn("No messaging channels started. Configure Telegram or WhatsApp in .env");
   }
 
+  // Start managed mode reporter (if configured)
+  if (config.managedCallbackUrl && config.managedInstanceId) {
+    log.info("Managed mode: starting health/usage reporter");
+    startReporter(db, config.managedCallbackUrl, config.managedInstanceId, config.llmProxyToken ?? config.masterKey);
+  }
+
+  if (config.llmProxyUrl) {
+    log.info(`LLM proxy mode: routing through ${config.llmProxyUrl}`);
+  }
+
   // Warm model in background so startup stays responsive.
   log.info("Warming embedding model in background...");
   warmupEmbedder().catch((err) => {
@@ -150,6 +174,7 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info("Shutting down...");
+    stopReporter();
     stopAllTasks();
     stopAllBots();
     stopWhatsApp();

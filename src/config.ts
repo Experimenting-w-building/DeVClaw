@@ -29,38 +29,59 @@ const AppConfigSchema = z.object({
   // WhatsApp channel (optional -- at least one channel must be configured)
   whatsappOwnerJid: z.string().optional(),
 
+  // LLM proxy (managed mode -- routes calls through control plane)
+  llmProxyUrl: z.string().url().optional(),
+  llmProxyToken: z.string().optional(),
+
+  // Managed mode (control plane integration)
+  managedCallbackUrl: z.string().url().optional(),
+  managedInstanceId: z.string().optional(),
+  managedBootstrapToken: z.string().optional(),
+
   mcpServers: z.string().optional(),
 
   dbPath: z.string().default("data.db"),
   agentsDir: z.string().default("agents"),
 }).superRefine((val, ctx) => {
-  if (!val.anthropicApiKey && !val.openaiApiKey && !val.googleApiKey) {
+  const isProxyMode = !!val.llmProxyUrl;
+
+  if (!isProxyMode && !val.anthropicApiKey && !val.openaiApiKey && !val.googleApiKey) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["anthropicApiKey"],
-      message: "At least one provider API key must be set (ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY)",
+      message: "At least one provider API key must be set (ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY), or set LLM_PROXY_URL for managed mode",
     });
   }
 
-  if (val.mainModelProvider === "anthropic" && !val.anthropicApiKey) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["mainModelProvider"],
-      message: "MAIN_MODEL_PROVIDER=anthropic requires ANTHROPIC_API_KEY",
-    });
+  if (!isProxyMode) {
+    if (val.mainModelProvider === "anthropic" && !val.anthropicApiKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mainModelProvider"],
+        message: "MAIN_MODEL_PROVIDER=anthropic requires ANTHROPIC_API_KEY",
+      });
+    }
+    if (val.mainModelProvider === "openai" && !val.openaiApiKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mainModelProvider"],
+        message: "MAIN_MODEL_PROVIDER=openai requires OPENAI_API_KEY",
+      });
+    }
+    if (val.mainModelProvider === "google" && !val.googleApiKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mainModelProvider"],
+        message: "MAIN_MODEL_PROVIDER=google requires GOOGLE_API_KEY",
+      });
+    }
   }
-  if (val.mainModelProvider === "openai" && !val.openaiApiKey) {
+
+  if (val.llmProxyUrl && !val.llmProxyToken) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ["mainModelProvider"],
-      message: "MAIN_MODEL_PROVIDER=openai requires OPENAI_API_KEY",
-    });
-  }
-  if (val.mainModelProvider === "google" && !val.googleApiKey) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["mainModelProvider"],
-      message: "MAIN_MODEL_PROVIDER=google requires GOOGLE_API_KEY",
+      path: ["llmProxyToken"],
+      message: "LLM_PROXY_TOKEN is required when LLM_PROXY_URL is set",
     });
   }
 
@@ -112,6 +133,11 @@ function buildRawConfig(): Record<string, string | undefined> {
     llmMaxRetries: process.env.LLM_MAX_RETRIES,
     mainBotToken: process.env.MAIN_BOT_TOKEN,
     whatsappOwnerJid: process.env.WHATSAPP_OWNER_JID,
+    llmProxyUrl: process.env.LLM_PROXY_URL,
+    llmProxyToken: process.env.LLM_PROXY_TOKEN,
+    managedCallbackUrl: process.env.MANAGED_CALLBACK_URL,
+    managedInstanceId: process.env.MANAGED_INSTANCE_ID,
+    managedBootstrapToken: process.env.MANAGED_BOOTSTRAP_TOKEN,
     mcpServers: process.env.MCP_SERVERS,
     dbPath: process.env.DB_PATH,
     agentsDir: process.env.AGENTS_DIR,
