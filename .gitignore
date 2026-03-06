@@ -21,3 +21,6 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# Cloud control plane (separate repo)
+cloud/
